@@ -72,6 +72,10 @@ kotlin {
 }
 
 dependencies {
+    implementation(files("libs/ScanManager_V202105081630.jar"))
+    implementation(files("libs/lcprintsdk1.1-classes.jar"))
+    implementation(files("libs/PrinterAPI_V202108242200.jar"))
+
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.mockito:mockito-core:5.0.0")
 }

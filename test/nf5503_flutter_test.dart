@@ -9,6 +9,9 @@ class MockNf5503FlutterPlatform
     implements Nf5503FlutterPlatform {
   @override
   Future<String?> getPlatformVersion() => Future.value('42');
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {
@@ -24,5 +27,12 @@ void main() {
     Nf5503FlutterPlatform.instance = fakePlatform;
 
     expect(await nf5503FlutterPlugin.getPlatformVersion(), '42');
+  });
+
+  test('exposes scanner and printer facades', () {
+    final nf5503FlutterPlugin = Nf5503Flutter();
+
+    expect(nf5503FlutterPlugin.scanner, isA<Nf5503Scanner>());
+    expect(nf5503FlutterPlugin.printer, isA<Nf5503Printer>());
   });
 }
