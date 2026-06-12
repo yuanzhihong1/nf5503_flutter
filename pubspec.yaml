@@ -1,6 +1,8 @@
 name: nf5503_flutter
 description: M5Stack NF5503 Android barcode scanner and thermal/label printer Flutter plugin.
 version: 0.0.1
+repository: https://github.com/yuanzhihong1/nf5503_flutter
+issue_tracker: https://github.com/yuanzhihong1/nf5503_flutter/issues
 topics:
   - android
   - barcode
