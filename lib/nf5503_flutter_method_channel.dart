@@ -52,6 +52,53 @@ class MethodChannelNf5503Flutter extends Nf5503FlutterPlatform {
   Future<bool> scannerIsOpen() => _invokeBool('scanner.isOpen');
 
   @override
+  Future<List<Map<String, Object?>>> scannerGetSymbologyList() async {
+    final values = await methodChannel.invokeMethod<List<Object?>>(
+      'scanner.getSymbologyList',
+    );
+    return (values ?? const <Object?>[])
+        .map(_stringObjectMap)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> scannerInitSymbologySettings() {
+    return _invokeVoid('scanner.initSymbologySettings');
+  }
+
+  @override
+  Future<Nf5503ScannerType> scannerGetScannerType() async {
+    return Nf5503ScannerType.fromValue(
+      await _invokeInt('scanner.getScannerType'),
+    );
+  }
+
+  @override
+  Future<bool> scannerIsConflicted() {
+    return _invokeBool('scanner.isConflicted');
+  }
+
+  @override
+  Future<void> scannerConnectDecoder() {
+    return _invokeVoid('scanner.connectDecoder');
+  }
+
+  @override
+  Future<void> scannerDisconnectDecoder() {
+    return _invokeVoid('scanner.disconnectDecoder');
+  }
+
+  @override
+  Future<bool> scannerGetDecoderStatus() {
+    return _invokeBool('scanner.getDecoderStatus');
+  }
+
+  @override
+  Future<bool> scannerIsDecoderConnected() {
+    return _invokeBool('scanner.isDecoderConnected');
+  }
+
+  @override
   Future<void> scannerSetPrefix(String prefix) {
     return _invokeVoid('scanner.setPrefix', <String, Object?>{
       'prefix': prefix,
@@ -184,6 +231,20 @@ class MethodChannelNf5503Flutter extends Nf5503FlutterPlatform {
   Future<Nf5503ScanOutputMode> scannerGetOutputMode() async {
     return Nf5503ScanOutputMode.fromValue(
       await _invokeInt('scanner.getOutputMode'),
+    );
+  }
+
+  @override
+  Future<void> scannerSetDecodeMode(Nf5503ScanDecodeMode mode) {
+    return _invokeVoid('scanner.setDecodeMode', <String, Object?>{
+      'mode': mode.value,
+    });
+  }
+
+  @override
+  Future<Nf5503ScanDecodeMode> scannerGetDecodeMode() async {
+    return Nf5503ScanDecodeMode.fromValue(
+      await _invokeInt('scanner.getDecodeMode'),
     );
   }
 
@@ -341,6 +402,16 @@ class MethodChannelNf5503Flutter extends Nf5503FlutterPlatform {
   Future<int> printerReset() => _invokeInt('printer.reset');
 
   @override
+  Future<void> printerSetFontType(String fontType) {
+    return _invokeVoid('printer.setFontType', <String, Object?>{
+      'fontType': fontType,
+    });
+  }
+
+  @override
+  Future<String> printerGetFontType() => _invokeString('printer.getFontType');
+
+  @override
   Future<void> printerSetFontSize(Nf5503PrintFontSize fontSize) {
     return _invokeVoid('printer.setFontSize', <String, Object?>{
       'fontSize': fontSize.value,
@@ -373,6 +444,13 @@ class MethodChannelNf5503Flutter extends Nf5503FlutterPlatform {
 
   @override
   Future<bool> printerIsBlackMark() => _invokeBool('printer.isBlackMark');
+
+  @override
+  Future<int> printerSetThreshold(int threshold) {
+    return _invokeInt('printer.setThreshold', <String, Object?>{
+      'threshold': threshold,
+    });
+  }
 
   @override
   Future<void> printerSetUnderline(bool enabled) {
@@ -577,6 +655,13 @@ Map<Object?, Object?> _eventMap(Object? event) {
     return event.cast<Object?, Object?>();
   }
   return <Object?, Object?>{};
+}
+
+Map<String, Object?> _stringObjectMap(Object? value) {
+  if (value is Map) {
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+  return <String, Object?>{'value': value};
 }
 
 int _intFromObject(Object? value) {

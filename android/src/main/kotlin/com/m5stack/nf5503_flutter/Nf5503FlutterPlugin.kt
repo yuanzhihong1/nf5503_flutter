@@ -16,6 +16,7 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.lang.reflect.Modifier
 import kotlin.math.ceil
 
 /** Nf5503FlutterPlugin */
@@ -30,6 +31,7 @@ class Nf5503FlutterPlugin :
     private val mainHandler = Handler(Looper.getMainLooper())
     private var scanner: ScanManager? = null
     private var printer: PrintManager? = null
+    private var printUtil: PrintUtil? = null
     private var scannerEvents: EventChannel.EventSink? = null
     private var printerEvents: EventChannel.EventSink? = null
     private var scanReceiver: BroadcastReceiver? = null
@@ -72,6 +74,25 @@ class Nf5503FlutterPlugin :
                 "scanner.startDecode" -> result.success(ensureScanner().startDecode())
                 "scanner.stopDecode" -> result.success(ensureScanner().stopDecode())
                 "scanner.isOpen" -> result.success(ensureScanner().isScannerOpen())
+                "scanner.getSymbologyList" -> {
+                    result.success(getSymbologyListByReflection())
+                }
+                "scanner.initSymbologySettings" -> {
+                    ensureScanner().initSymbologySettings()
+                    result.success(null)
+                }
+                "scanner.getScannerType" -> result.success(ensureScanner().getScannerType())
+                "scanner.isConflicted" -> result.success(ensureScanner().isScannerConflicted())
+                "scanner.connectDecoder" -> {
+                    ensureScanner().decoderConnect()
+                    result.success(null)
+                }
+                "scanner.disconnectDecoder" -> {
+                    ensureScanner().decoderDisconnect()
+                    result.success(null)
+                }
+                "scanner.getDecoderStatus" -> result.success(ensureScanner().getDecoderStatus())
+                "scanner.isDecoderConnected" -> result.success(ensureScanner().isDecoderConnected())
                 "scanner.setPrefix" -> {
                     ensureScanner().setPrefix(call.stringArg("prefix"))
                     result.success(null)
@@ -132,6 +153,11 @@ class Nf5503FlutterPlugin :
                     result.success(null)
                 }
                 "scanner.getOutputMode" -> result.success(ensureScanner().opMode)
+                "scanner.setDecodeMode" -> {
+                    ensureScanner().setDecodeMode(call.intArg("mode"))
+                    result.success(null)
+                }
+                "scanner.getDecodeMode" -> result.success(ensureScanner().decodeMode)
                 "scanner.setEndMark" -> {
                     ensureScanner().setEndMark(call.intArg("mark"))
                     result.success(null)
@@ -209,6 +235,11 @@ class Nf5503FlutterPlugin :
                 }
                 "printer.getConcentration" -> result.success(ensurePrinter().density * 4)
                 "printer.reset" -> result.success(ensurePrinter().reset())
+                "printer.setFontType" -> {
+                    ensurePrinter().setFontType(call.stringArg("fontType"))
+                    result.success(null)
+                }
+                "printer.getFontType" -> result.success(ensurePrinter().fontType.orEmpty())
                 "printer.setFontSize" -> {
                     ensurePrinter().setFontSize(call.intArg("fontSize"))
                     result.success(null)
@@ -224,6 +255,7 @@ class Nf5503FlutterPlugin :
                     result.success(null)
                 }
                 "printer.isBlackMark" -> result.success(ensurePrinter().isBlackLabel)
+                "printer.setThreshold" -> result.success(ensurePrinter().setThreshold(call.intArg("threshold")))
                 "printer.setUnderline" -> {
                     ensurePrinter().setUnderLine(call.boolArg("enabled"))
                     result.success(null)
@@ -293,8 +325,12 @@ class Nf5503FlutterPlugin :
                 }
                 "printer.isReverse" -> result.success(ensurePrinter().isReverse)
                 "printer.goToNextMark" -> {
-                    ensurePrinter().setFeedPaperSpace(call.argument<Int>("distance") ?: 1000)
-                    ensurePrinter().start()
+                    val distance = call.optionalIntArg("distance")
+                    if (distance == null) {
+                        ensurePrintUtil().printGoToNextMark()
+                    } else {
+                        ensurePrintUtil().printGoToNextMark(distance)
+                    }
                     result.success(null)
                 }
                 "printer.setLineSpacing" -> {
@@ -327,8 +363,69 @@ class Nf5503FlutterPlugin :
         return printer ?: PrintManager.getDefaultInstance(appContext).also { printer = it }
     }
 
+    private fun ensurePrintUtil(): PrintUtil {
+        return printUtil ?: PrintUtil.getInstance(appContext).also { printUtil = it }
+    }
+
     private fun densityToNative(density: Int): Int {
-        return ceil(density / 4.0).toInt() + 1
+        return ceil(density / 4.0).toInt()
+    }
+
+    private fun getSymbologyListByReflection(): List<Map<String, Any?>> {
+        val scanner = ensureScanner()
+        val values = scanner.javaClass
+            .getMethod("getSymbologyList")
+            .invoke(scanner) as? Iterable<*> ?: return emptyList()
+        return values.map { valueToMap(it) }
+    }
+
+    private fun valueToMap(value: Any?): Map<String, Any?> {
+        if (value == null) {
+            return mapOf("value" to null)
+        }
+        if (value is Boolean || value is Number || value is String) {
+            return mapOf("value" to codecValue(value))
+        }
+
+        val result = linkedMapOf<String, Any?>(
+            "className" to value.javaClass.name,
+            "label" to value.toString(),
+        )
+        value.javaClass.fields
+            .filter { Modifier.isPublic(it.modifiers) }
+            .forEach { field ->
+                runCatching { result[field.name] = codecValue(field.get(value)) }
+            }
+        value.javaClass.methods
+            .filter {
+                Modifier.isPublic(it.modifiers) &&
+                    it.parameterTypes.isEmpty() &&
+                    it.name != "getClass"
+            }
+            .forEach { method ->
+                val name = propertyName(method.name) ?: return@forEach
+                runCatching { result[name] = codecValue(method.invoke(value)) }
+            }
+        return result
+    }
+
+    private fun propertyName(methodName: String): String? {
+        val rawName =
+            when {
+                methodName.startsWith("get") && methodName.length > 3 -> methodName.substring(3)
+                methodName.startsWith("is") && methodName.length > 2 -> methodName.substring(2)
+                else -> return null
+            }
+        return rawName.replaceFirstChar { it.lowercaseChar() }
+    }
+
+    private fun codecValue(value: Any?): Any? {
+        return when (value) {
+            null, is Boolean, is Int, is Long, is Double, is String -> value
+            is Float -> value.toDouble()
+            is Number -> value.toDouble()
+            else -> value.toString()
+        }
     }
 
     private val scannerStreamHandler =
@@ -451,6 +548,16 @@ private fun MethodCall.stringArg(name: String): String {
 
 private fun MethodCall.intArg(name: String): Int {
     val value = argument<Any>(name) ?: throw IllegalArgumentException("$name is required")
+    return when (value) {
+        is Int -> value
+        is Long -> value.toInt()
+        is Number -> value.toInt()
+        else -> value.toString().toInt()
+    }
+}
+
+private fun MethodCall.optionalIntArg(name: String): Int? {
+    val value = argument<Any>(name) ?: return null
     return when (value) {
         is Int -> value
         is Long -> value.toInt()

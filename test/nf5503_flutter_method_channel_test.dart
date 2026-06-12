@@ -19,7 +19,14 @@ void main() {
             'getPlatformVersion' => '42',
             'scanner.open' => true,
             'scanner.getOutputMode' => 2,
+            'scanner.getDecodeMode' => 4,
+            'scanner.getScannerType' => 33,
+            'scanner.getSymbologyList' => <Map<String, Object?>>[
+              <String, Object?>{'id': 1, 'name': 'CODE128'},
+            ],
             'printer.getFontSize' => 5,
+            'printer.getFontType' => 'default',
+            'printer.setThreshold' => 0,
             _ => null,
           };
         });
@@ -53,6 +60,27 @@ void main() {
     );
   });
 
+  test('scannerSetDecodeMode passes official SDK value', () async {
+    await platform.scannerSetDecodeMode(Nf5503ScanDecodeMode.gb18030);
+
+    expect(methodCalls.single.method, 'scanner.setDecodeMode');
+    expect(methodCalls.single.arguments, <String, Object?>{'mode': 4});
+  });
+
+  test('scannerGetDecodeMode maps official SDK value', () async {
+    expect(await platform.scannerGetDecodeMode(), Nf5503ScanDecodeMode.gb18030);
+  });
+
+  test('scannerGetScannerType maps official SDK value', () async {
+    expect(await platform.scannerGetScannerType(), Nf5503ScannerType.n6603);
+  });
+
+  test('scannerGetSymbologyList maps raw object maps', () async {
+    expect(await platform.scannerGetSymbologyList(), <Map<String, Object?>>[
+      <String, Object?>{'id': 1, 'name': 'CODE128'},
+    ]);
+  });
+
   test('printerAddText passes text options', () async {
     await platform.printerAddText(
       'hello',
@@ -74,5 +102,28 @@ void main() {
 
   test('printerGetFontSize maps official SDK value', () async {
     expect(await platform.printerGetFontSize(), Nf5503PrintFontSize.large);
+  });
+
+  test('printerSetFontType passes font type', () async {
+    await platform.printerSetFontType('default');
+
+    expect(methodCalls.single.method, 'printer.setFontType');
+    expect(methodCalls.single.arguments, <String, Object?>{
+      'fontType': 'default',
+    });
+  });
+
+  test('printerSetThreshold passes threshold and returns state', () async {
+    expect(await platform.printerSetThreshold(120), 0);
+
+    expect(methodCalls.single.method, 'printer.setThreshold');
+    expect(methodCalls.single.arguments, <String, Object?>{'threshold': 120});
+  });
+
+  test('printerGoToNextMark passes optional distance', () async {
+    await platform.printerGoToNextMark(distance: 120);
+
+    expect(methodCalls.single.method, 'printer.goToNextMark');
+    expect(methodCalls.single.arguments, <String, Object?>{'distance': 120});
   });
 }
