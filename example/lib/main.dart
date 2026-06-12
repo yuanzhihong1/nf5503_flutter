@@ -18,6 +18,18 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   static const _defaultScanAction = 'com.m5stack.nf5503_flutter.SCAN';
   static const _defaultScanKey = 'barcode';
+  static const _thermalCalibrationDensities = <int>[
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    28,
+    32,
+    36,
+    40,
+  ];
 
   final _plugin = Nf5503Flutter();
   final _scanActionController = TextEditingController(text: _defaultScanAction);
@@ -35,6 +47,7 @@ class _MyAppState extends State<MyApp> {
   bool? _printerOpen;
   int? _supportPrint;
   int? _lastPrinterState;
+  int _thermalCalibrationDensity = 25;
   bool _busy = false;
 
   @override
@@ -204,7 +217,7 @@ class _MyAppState extends State<MyApp> {
   Future<void> _printThermalSample() async {
     await _plugin.printer.open();
     await _plugin.printer.setBlackMark(false);
-    await _plugin.printer.setConcentration(25);
+    await _plugin.printer.setConcentration(_thermalCalibrationDensity);
     await _plugin.printer.setReverse(false);
     await _plugin.printer.setUnderline(false);
     await _plugin.printer.setBold(false);
@@ -222,6 +235,10 @@ class _MyAppState extends State<MyApp> {
     );
     await _plugin.printer.addText('Platform: $_platformVersion');
     await _plugin.printer.addText('Time: ${DateTime.now().toIso8601String()}');
+    await _plugin.printer.addText(
+      'Density: $_thermalCalibrationDensity/40 '
+      '(gray ${_nativeDensityStep(_thermalCalibrationDensity)}/10)',
+    );
     await _plugin.printer.addBlankLines(1);
     await _plugin.printer.addBarcode(
       content: 'NF5503-123456',
@@ -239,6 +256,92 @@ class _MyAppState extends State<MyApp> {
     await _plugin.printer.start();
     setState(() => _printerOpen = true);
     _log('已提交热敏打印样张');
+  }
+
+  Future<void> _printThermalCalibrationSample() async {
+    await _listenPrinterEvents();
+    await _plugin.printer.open();
+    await _plugin.printer.setBlackMark(false);
+    await _plugin.printer.setConcentration(_thermalCalibrationDensity);
+    await _plugin.printer.setReverse(false);
+    await _plugin.printer.setUnderline(false);
+    await _plugin.printer.setBold(false);
+    await _plugin.printer.setLineSpacing(1.0);
+
+    final temp = await _plugin.printer.getState(
+      Nf5503PrinterStateType.checkTemp,
+    );
+    final paper = await _plugin.printer.getState(
+      Nf5503PrinterStateType.checkPaper,
+    );
+
+    await _plugin.printer.addText(
+      'Thermal Calibration',
+      align: Nf5503PrintAlign.center,
+      fontSize: Nf5503PrintFontSize.large,
+      isBold: true,
+    );
+    await _plugin.printer.addText(
+      'Density $_thermalCalibrationDensity/40  '
+      'gray ${_nativeDensityStep(_thermalCalibrationDensity)}/10',
+      align: Nf5503PrintAlign.center,
+    );
+    await _plugin.printer.addText('Temp state: $temp  Paper state: $paper');
+    await _plugin.printer.addText('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+    await _plugin.printer.addText('abcdefghijklmnopqrstuvwxyz');
+    await _plugin.printer.addText('0123456789  !@#\$%^&*()_+-=');
+    await _plugin.printer.addText('############################');
+    await _plugin.printer.addText('||||||||||||||||||||||||||||');
+    await _plugin.printer.addText('IIII llll 0000 OOOO 8888 BBBB');
+    await _plugin.printer.addBarcode(
+      content: 'CAL-${_thermalCalibrationDensity.toString().padLeft(2, '0')}',
+      height: 70,
+      type: Nf5503BarcodeType.code128,
+      align: Nf5503PrintAlign.center,
+      hriPosition: Nf5503HriPosition.below,
+    );
+    await _plugin.printer.addBlankLines(3);
+    await _plugin.printer.start();
+    setState(() {
+      _printerOpen = true;
+      _lastPrinterState = paper == Nf5503PrintErrorCode.noError.value
+          ? temp
+          : paper;
+    });
+    _log(
+      '已提交热敏校准样张: density=$_thermalCalibrationDensity, temp=$temp, paper=$paper',
+    );
+  }
+
+  Future<void> _printThermalCalibrationScale() async {
+    await _listenPrinterEvents();
+    await _plugin.printer.open();
+    await _plugin.printer.setBlackMark(false);
+    await _plugin.printer.setReverse(false);
+    await _plugin.printer.setUnderline(false);
+    await _plugin.printer.setBold(false);
+    await _plugin.printer.setLineSpacing(1.0);
+
+    for (final density in _thermalCalibrationDensities) {
+      await _waitForPrinterIdle();
+      await _plugin.printer.setConcentration(density);
+      await _plugin.printer.addText(
+        'Density $density/40  gray ${_nativeDensityStep(density)}/10',
+        align: Nf5503PrintAlign.center,
+        fontSize: Nf5503PrintFontSize.small,
+        isBold: true,
+      );
+      await _plugin.printer.addText('The quick brown fox 1234567890');
+      await _plugin.printer.addText('############################');
+      await _plugin.printer.addText('||||||||||||||||||||||||||||');
+      await _plugin.printer.addBlankLines(1);
+      await _plugin.printer.start();
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      await _waitForPrinterIdle(timeout: const Duration(seconds: 5));
+    }
+
+    setState(() => _printerOpen = true);
+    _log('已提交热敏浓度校准尺: 4/8/.../40');
   }
 
   Future<void> _printLabelSample() async {
@@ -283,6 +386,33 @@ class _MyAppState extends State<MyApp> {
     final success = await _plugin.printer.close();
     setState(() => _printerOpen = false);
     _log('closePrinter 返回: $success');
+  }
+
+  Future<void> _waitForPrinterIdle({
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      final state = await _plugin.printer.getState(
+        Nf5503PrinterStateType.checkBusy,
+      );
+      if (state == Nf5503PrintErrorCode.noError.value) {
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+    }
+    _log('等待打印机空闲超时，继续提交后续校准内容');
+  }
+
+  int _nativeDensityStep(int density) {
+    final step = (density / 4).ceil();
+    if (step < 1) {
+      return 1;
+    }
+    if (step > 10) {
+      return 10;
+    }
+    return step;
   }
 
   @override
@@ -449,6 +579,17 @@ class _MyAppState extends State<MyApp> {
           ],
         ),
         const SizedBox(height: 12),
+        _ThermalCalibrationPanel(
+          density: _thermalCalibrationDensity,
+          nativeDensity: _nativeDensityStep(_thermalCalibrationDensity),
+          enabled: !_busy,
+          onDensityChanged: (value) {
+            setState(() => _thermalCalibrationDensity = value);
+          },
+          onPrintSample: () => _run('热敏校准样张', _printThermalCalibrationSample),
+          onPrintScale: () => _run('热敏浓度校准尺', _printThermalCalibrationScale),
+        ),
+        const SizedBox(height: 12),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -607,6 +748,98 @@ class _SectionCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _ThermalCalibrationPanel extends StatelessWidget {
+  const _ThermalCalibrationPanel({
+    required this.density,
+    required this.nativeDensity,
+    required this.enabled,
+    required this.onDensityChanged,
+    required this.onPrintSample,
+    required this.onPrintScale,
+  });
+
+  final int density;
+  final int nativeDensity;
+  final bool enabled;
+  final ValueChanged<int> onDensityChanged;
+  final VoidCallback onPrintSample;
+  final VoidCallback onPrintScale;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3D8),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFF2C66D)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.local_fire_department, color: Color(0xFFB45309)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '热敏校准',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: const Color(0xFF78350F),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Text(
+                '$density/40',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: const Color(0xFF78350F),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '调整浓度后打印校准样张；原生灰度档位约为 $nativeDensity/10。',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: const Color(0xFF92400E)),
+          ),
+          Slider(
+            value: density.toDouble(),
+            min: 1,
+            max: 40,
+            divisions: 39,
+            label: '$density',
+            activeColor: const Color(0xFFB45309),
+            onChanged: enabled
+                ? (value) => onDensityChanged(value.round())
+                : null,
+          ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: enabled ? onPrintSample : null,
+                icon: const Icon(Icons.receipt_long),
+                label: const Text('打印校准样张'),
+              ),
+              OutlinedButton.icon(
+                onPressed: enabled ? onPrintScale : null,
+                icon: const Icon(Icons.view_stream_outlined),
+                label: const Text('打印浓度尺'),
+              ),
+            ],
+          ),
         ],
       ),
     );
