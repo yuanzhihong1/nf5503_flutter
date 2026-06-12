@@ -1,11 +1,12 @@
 # nf5503_flutter_example
 
-Example app for the `nf5503_flutter` plugin.
+`nf5503_flutter` 的真机示例应用，用于验证 NF5503 Android 设备上的扫码与打印 SDK。
 
-The app provides a device-side probe UI for:
+示例包含：
 
-- Scanner initialization, broadcast listening, start/stop decode, and configuration reads.
-- Printer open/close, support/version/state reads, density/font/paper settings, and print samples.
-- Label black-mark threshold setup, black-mark movement, and thermal density calibration.
+- 扫码头初始化、广播监听、开始/停止解码与配置读取。
+- 打印服务开关、版本/状态读取、纸张类型、浓度和字体设置。
+- 标签黑标阈值设置、黑标走纸、自动校准与热敏浓度校准尺。
+- 文本、条码、二维码和图片打印样张。
 
-Run it on an NF5503 Android device so the native scan and print framework services are available.
+请在 NF5503 Android 真机上运行；普通模拟器或非 NF5503 设备通常没有对应的原生框架服务。

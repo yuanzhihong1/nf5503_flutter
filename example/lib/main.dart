@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:nf5503_flutter/nf5503_flutter.dart';
 
@@ -17,6 +18,8 @@ class MyApp extends StatefulWidget {
 }
 
 enum _PrintPaperType { receipt, label }
+
+enum _ActionTone { filled, tinted, plain }
 
 class _MyAppState extends State<MyApp> {
   static const _defaultScanAction = 'com.m5stack.nf5503_flutter.SCAN';
@@ -84,6 +87,10 @@ class _MyAppState extends State<MyApp> {
       _log('平台版本: $_platformVersion');
     } on PlatformException catch (error) {
       _log('读取平台版本失败: ${error.message ?? error.code}');
+    } on MissingPluginException catch (error) {
+      _log('当前运行环境未注册插件: ${error.message ?? error.toString()}');
+    } catch (error) {
+      _log('读取平台版本失败: $error');
     }
   }
 
@@ -258,26 +265,31 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _selectPrintFont() async {
-    final selectedFont = await showModalBottomSheet<String>(
+    final selectedFont = await showCupertinoModalPopup<String>(
       context: context,
       builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const ListTile(
-                title: Text('选择打印字体'),
-                subtitle: Text('与官方 demo 的字体配置项保持一致'),
-              ),
-              for (final font in const ['Roboto-Regular', 'default'])
-                ListTile(
-                  title: Text(font),
-                  trailing: font == _printFontName
-                      ? const Icon(Icons.check, color: Color(0xFF0284C7))
-                      : null,
-                  onTap: () => Navigator.of(context).pop(font),
+        return CupertinoActionSheet(
+          title: const Text('选择打印字体'),
+          message: const Text('与官方 demo 的字体配置项保持一致'),
+          actions: [
+            for (final font in const ['Roboto-Regular', 'default'])
+              CupertinoActionSheetAction(
+                onPressed: () => Navigator.of(context).pop(font),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(font),
+                    if (font == _printFontName) ...[
+                      const SizedBox(width: 8),
+                      const Icon(CupertinoIcons.checkmark_alt, size: 18),
+                    ],
+                  ],
                 ),
-            ],
+              ),
+          ],
+          cancelButton: CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
           ),
         );
       },
@@ -568,7 +580,7 @@ class _MyAppState extends State<MyApp> {
       text: const TextSpan(
         text: 'NF5503 IMAGE TEST',
         style: TextStyle(
-          color: Colors.black,
+          color: Color(0xFF000000),
           fontSize: 28,
           fontWeight: FontWeight.w800,
         ),
@@ -591,23 +603,29 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return CupertinoApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0F766E),
-          brightness: Brightness.light,
+      title: 'NF5503 Flutter Example',
+      theme: const CupertinoThemeData(
+        brightness: Brightness.light,
+        primaryColor: _AppColors.primary,
+        scaffoldBackgroundColor: _AppColors.paper,
+        textTheme: CupertinoTextThemeData(
+          textStyle: TextStyle(
+            color: _AppColors.ink,
+            fontSize: 15,
+            height: 1.35,
+            fontFamily: '.SF Pro Text',
+          ),
         ),
-        useMaterial3: true,
-        fontFamily: 'Avenir Next',
       ),
-      home: Scaffold(
-        body: Container(
+      home: CupertinoPageScaffold(
+        child: DecoratedBox(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFF0B1F1E), Color(0xFF123D37), Color(0xFFF6E8C8)],
+              colors: [_AppColors.ink, _AppColors.deepTeal, _AppColors.paper],
             ),
           ),
           child: SafeArea(
@@ -640,7 +658,7 @@ class _MyAppState extends State<MyApp> {
 
   Widget _scannerCard() {
     return _SectionCard(
-      icon: Icons.document_scanner_outlined,
+      icon: CupertinoIcons.barcode_viewfinder,
       title: '扫码 SDK 测试',
       subtitle: '先初始化广播并监听，再点击开始扫码或按设备扫码键。',
       children: [
@@ -659,22 +677,16 @@ class _MyAppState extends State<MyApp> {
           ],
         ),
         const SizedBox(height: 12),
-        TextField(
+        _CupertinoField(
+          label: '广播 Action',
           controller: _scanActionController,
-          decoration: const InputDecoration(
-            labelText: '广播 Action',
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
+          enabled: !_busy,
         ),
         const SizedBox(height: 10),
-        TextField(
+        _CupertinoField(
+          label: '广播 Key',
           controller: _scanKeyController,
-          decoration: const InputDecoration(
-            labelText: '广播 Key',
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
+          enabled: !_busy,
         ),
         const SizedBox(height: 12),
         _ResultBox(title: '最近扫码', value: _lastScan),
@@ -683,32 +695,36 @@ class _MyAppState extends State<MyApp> {
           spacing: 8,
           runSpacing: 8,
           children: [
-            FilledButton.icon(
+            _ActionButton(
+              label: '初始化/监听',
+              icon: CupertinoIcons.antenna_radiowaves_left_right,
+              tone: _ActionTone.filled,
               onPressed: _busy ? null : () => _run('初始化扫码并监听', _prepareScanner),
-              icon: const Icon(Icons.settings_input_antenna),
-              label: const Text('初始化/监听'),
             ),
-            FilledButton.tonalIcon(
+            _ActionButton(
+              label: '开始扫码',
+              icon: CupertinoIcons.play_arrow_solid,
               onPressed: _busy ? null : () => _run('开始扫码', _startDecode),
-              icon: const Icon(Icons.play_arrow),
-              label: const Text('开始扫码'),
             ),
-            OutlinedButton.icon(
+            _ActionButton(
+              label: '停止',
+              icon: CupertinoIcons.stop_fill,
+              tone: _ActionTone.plain,
               onPressed: _busy ? null : () => _run('停止扫码', _stopDecode),
-              icon: const Icon(Icons.stop),
-              label: const Text('停止'),
             ),
-            OutlinedButton.icon(
+            _ActionButton(
+              label: '读配置',
+              icon: CupertinoIcons.doc_text_search,
+              tone: _ActionTone.plain,
               onPressed: _busy
                   ? null
                   : () => _run('读取扫码配置', _readScannerConfig),
-              icon: const Icon(Icons.fact_check_outlined),
-              label: const Text('读配置'),
             ),
-            OutlinedButton.icon(
+            _ActionButton(
+              label: '关闭',
+              icon: CupertinoIcons.power,
+              tone: _ActionTone.plain,
               onPressed: _busy ? null : () => _run('关闭扫码', _closeScanner),
-              icon: const Icon(Icons.power_settings_new),
-              label: const Text('关闭'),
             ),
           ],
         ),
@@ -723,7 +739,7 @@ class _MyAppState extends State<MyApp> {
         : (Nf5503PrintErrorCode.fromValue(state)?.name ?? '$state');
     final isLabelPaper = _printPaperType == _PrintPaperType.label;
     return _SectionCard(
-      icon: Icons.print_outlined,
+      icon: CupertinoIcons.printer,
       title: '打印 SDK 测试',
       subtitle: '按官方 demo 的打印服务配置组织：通用设置、标签校准和打印测试项。',
       children: [
@@ -806,6 +822,23 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
+class _AppColors {
+  const _AppColors._();
+
+  static const ink = Color(0xFF081816);
+  static const deepTeal = Color(0xFF123D37);
+  static const primary = Color(0xFF087568);
+  static const accent = Color(0xFFF6C453);
+  static const paper = Color(0xFFFFF5DC);
+  static const card = Color(0xFFFFFCF5);
+  static const mist = Color(0xFFE7F3EF);
+  static const line = Color(0xFFE7DED0);
+  static const panel = Color(0xFFF7F7F7);
+  static const blue = Color(0xFF0A84FF);
+  static const white = Color(0xFFFFFFFF);
+  static const white70 = Color(0xB3FFFFFF);
+}
+
 class _Header extends StatelessWidget {
   const _Header({required this.platformVersion, required this.busy});
 
@@ -817,43 +850,49 @@ class _Header extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
+        color: _AppColors.white.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+        border: Border.all(color: _AppColors.white.withValues(alpha: 0.24)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.memory, color: Color(0xFFFDE68A), size: 34),
+              const _IconBadge(
+                icon: CupertinoIcons.waveform_path_ecg,
+                backgroundColor: _AppColors.accent,
+                foregroundColor: _AppColors.ink,
+                size: 48,
+              ),
               const SizedBox(width: 12),
-              Expanded(
+              const Expanded(
                 child: Text(
                   'NF5503 SDK Probe',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: _AppColors.white,
+                    fontSize: 26,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: -0.6,
+                    letterSpacing: -0.8,
+                    height: 1.05,
                   ),
                 ),
               ),
               if (busy)
                 const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
+                  width: 24,
+                  height: 24,
+                  child: CupertinoActivityIndicator(color: _AppColors.white),
                 ),
             ],
           ),
           const SizedBox(height: 10),
           Text(
             '用于真机验证扫码与打印官方 SDK 是否能被 Flutter 插件正确调用。',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white.withValues(alpha: 0.82),
+            style: TextStyle(
+              color: _AppColors.white.withValues(alpha: 0.82),
+              fontSize: 14,
+              height: 1.45,
             ),
           ),
           const SizedBox(height: 14),
@@ -882,13 +921,13 @@ class _SectionCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFFCF5).withValues(alpha: 0.94),
+        color: _AppColors.card.withValues(alpha: 0.96),
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
             blurRadius: 24,
             offset: const Offset(0, 12),
-            color: Colors.black.withValues(alpha: 0.16),
+            color: _AppColors.ink.withValues(alpha: 0.16),
           ),
         ],
       ),
@@ -897,11 +936,7 @@ class _SectionCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              CircleAvatar(
-                backgroundColor: const Color(0xFF0F766E),
-                foregroundColor: Colors.white,
-                child: Icon(icon),
-              ),
+              _IconBadge(icon: icon),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -909,15 +944,21 @@ class _SectionCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      style: const TextStyle(
+                        fontSize: 20,
                         fontWeight: FontWeight.w800,
-                        color: const Color(0xFF102A27),
+                        color: _AppColors.ink,
+                        letterSpacing: -0.2,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: const TextStyle(
+                        color: Color(0xFF55615E),
+                        fontSize: 13,
+                        height: 1.35,
+                      ),
                     ),
                   ],
                 ),
@@ -928,6 +969,30 @@ class _SectionCard extends StatelessWidget {
           ...children,
         ],
       ),
+    );
+  }
+}
+
+class _IconBadge extends StatelessWidget {
+  const _IconBadge({
+    required this.icon,
+    this.backgroundColor = _AppColors.primary,
+    this.foregroundColor = _AppColors.white,
+    this.size = 42,
+  });
+
+  final IconData icon;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(color: backgroundColor, shape: BoxShape.circle),
+      child: Icon(icon, color: foregroundColor, size: size * 0.52),
     );
   }
 }
@@ -948,16 +1013,21 @@ class _PrintServiceSwitchPanel extends StatelessWidget {
     return _OfficialPanel(
       child: Row(
         children: [
-          Expanded(
+          const Expanded(
             child: Text(
               '打印服务开关',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: const Color(0xFF1F2933),
+              style: TextStyle(
+                color: Color(0xFF1F2933),
                 fontWeight: FontWeight.w700,
+                fontSize: 16,
               ),
             ),
           ),
-          Switch(value: value, onChanged: enabled ? onChanged : null),
+          CupertinoSwitch(
+            value: value,
+            activeTrackColor: _AppColors.primary,
+            onChanged: enabled ? onChanged : null,
+          ),
         ],
       ),
     );
@@ -990,12 +1060,16 @@ class _PrinterCommonSettingsPanel extends StatelessWidget {
     return _OfficialPanel(
       child: Column(
         children: [
-          const _OfficialPanelHeader(icon: Icons.build_circle, title: '通用设置'),
+          const _OfficialPanelHeader(
+            icon: CupertinoIcons.slider_horizontal_3,
+            title: '通用设置',
+          ),
           const SizedBox(height: 14),
           _ConfigLine(
             label: '打印纸类型:',
             child: Wrap(
               spacing: 10,
+              runSpacing: 8,
               children: [
                 _PaperRadio(
                   title: '热敏小票纸',
@@ -1019,10 +1093,10 @@ class _PrinterCommonSettingsPanel extends StatelessWidget {
             label: '打印机尺寸:',
             child: Row(
               mainAxisSize: MainAxisSize.min,
-              children: [
-                _RadioDot(selected: true, enabled: enabled),
-                const SizedBox(width: 8),
-                const Text('2寸(58mm)'),
+              children: const [
+                _RadioDot(selected: true, enabled: true),
+                SizedBox(width: 8),
+                Text('2寸(58mm)'),
               ],
             ),
           ),
@@ -1032,12 +1106,12 @@ class _PrinterCommonSettingsPanel extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: Slider(
+                  child: CupertinoSlider(
                     value: density.toDouble(),
                     min: 1,
                     max: 40,
                     divisions: 39,
-                    label: '$density',
+                    activeColor: _AppColors.primary,
                     onChanged: enabled
                         ? (value) => onDensityChanged(value.round())
                         : null,
@@ -1051,22 +1125,29 @@ class _PrinterCommonSettingsPanel extends StatelessWidget {
                   child: Text(
                     '$density',
                     textAlign: TextAlign.right,
-                    style: Theme.of(context).textTheme.bodyLarge,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 12),
-          InkWell(
-            onTap: enabled ? onFontTap : null,
+          _Pressable(
+            enabled: enabled,
+            onTap: onFontTap,
             borderRadius: BorderRadius.circular(10),
             child: _ConfigLine(
               label: '打印字体:',
               child: Row(
                 children: [
                   Expanded(child: Text(fontName)),
-                  const Icon(Icons.chevron_right, color: Color(0xFF0284C7)),
+                  const Icon(
+                    CupertinoIcons.chevron_right,
+                    color: _AppColors.blue,
+                  ),
                 ],
               ),
             ),
@@ -1104,21 +1185,25 @@ class _LabelCalibrationPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          const Row(
             children: [
-              const Icon(Icons.auto_fix_high, color: Color(0xFF0284C7)),
-              const SizedBox(width: 12),
-              Text('标签校准', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(width: 8),
-              const Icon(Icons.help, color: Color(0xFF0284C7)),
+              Icon(CupertinoIcons.sparkles, color: _AppColors.blue),
+              SizedBox(width: 12),
+              Text(
+                '标签校准',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+              SizedBox(width: 8),
+              Icon(CupertinoIcons.question_circle, color: _AppColors.blue),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               const Expanded(child: Text('黑标阈值启用开关')),
-              Switch(
+              CupertinoSwitch(
                 value: thresholdEnabled,
+                activeTrackColor: _AppColors.primary,
                 onChanged: enabled ? onThresholdEnabledChanged : null,
               ),
             ],
@@ -1131,20 +1216,21 @@ class _LabelCalibrationPanel extends StatelessWidget {
             children: [
               const Text('黑标阈值'),
               SizedBox(
-                width: 92,
-                child: TextField(
+                width: 94,
+                child: CupertinoTextField(
                   controller: thresholdController,
                   enabled: enabled && thresholdEnabled,
                   keyboardType: TextInputType.number,
                   textAlign: TextAlign.center,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 10,
-                    ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _AppColors.white,
+                    border: Border.all(color: _AppColors.line),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                 ),
               ),
@@ -1197,20 +1283,41 @@ class _PrintTestItemsPanel extends StatelessWidget {
         children: [
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 10),
-            child: _OfficialPanelHeader(icon: Icons.print, title: '打印测试项'),
+            child: _OfficialPanelHeader(
+              icon: CupertinoIcons.printer_fill,
+              title: '打印测试项',
+            ),
           ),
-          _PrintTestTile(title: '文本打印', enabled: enabled, onTap: onTextPrint),
           _PrintTestTile(
+            icon: CupertinoIcons.text_alignleft,
+            title: '文本打印',
+            enabled: enabled,
+            onTap: onTextPrint,
+          ),
+          _PrintTestTile(
+            icon: CupertinoIcons.barcode,
             title: '条码打印',
             enabled: enabled,
             onTap: onBarcodePrint,
           ),
-          _PrintTestTile(title: '图片打印', enabled: enabled, onTap: onImagePrint),
-          _PrintTestTile(title: '标签打印', enabled: enabled, onTap: onLabelPrint),
           _PrintTestTile(
+            icon: CupertinoIcons.photo,
+            title: '图片打印',
+            enabled: enabled,
+            onTap: onImagePrint,
+          ),
+          _PrintTestTile(
+            icon: CupertinoIcons.tag,
+            title: '标签打印',
+            enabled: enabled,
+            onTap: onLabelPrint,
+          ),
+          _PrintTestTile(
+            icon: CupertinoIcons.chart_bar,
             title: '热敏浓度尺',
             enabled: enabled,
             onTap: onCalibrationScale,
+            showDivider: false,
           ),
         ],
       ),
@@ -1233,9 +1340,9 @@ class _OfficialPanel extends StatelessWidget {
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F7F7),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: const Color(0xFFE8E8E8)),
+        color: _AppColors.panel,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _AppColors.line),
       ),
       child: child,
     );
@@ -1252,9 +1359,12 @@ class _OfficialPanelHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, color: const Color(0xFF0284C7)),
+        Icon(icon, color: _AppColors.blue),
         const SizedBox(width: 12),
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          title,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
       ],
     );
   }
@@ -1268,15 +1378,33 @@ class _ConfigLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        SizedBox(
-          width: 112,
-          child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
-        ),
-        Expanded(child: child),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < 360;
+        if (narrow) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              child,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 112,
+              child: Text(
+                label,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            Expanded(child: child),
+          ],
+        );
+      },
     );
   }
 }
@@ -1298,15 +1426,20 @@ class _PaperRadio extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: enabled ? () => onChanged(value) : null,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _RadioDot(selected: value == groupValue, enabled: enabled),
-          const SizedBox(width: 8),
-          Text(title),
-        ],
+    return _Pressable(
+      enabled: enabled,
+      onTap: () => onChanged(value),
+      borderRadius: BorderRadius.circular(999),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _RadioDot(selected: value == groupValue, enabled: enabled),
+            const SizedBox(width: 8),
+            Text(title),
+          ],
+        ),
       ),
     );
   }
@@ -1320,7 +1453,7 @@ class _RadioDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final active = enabled ? const Color(0xFF0284C7) : const Color(0xFF9CA3AF);
+    final active = enabled ? _AppColors.blue : const Color(0xFF9CA3AF);
     return Container(
       width: 22,
       height: 22,
@@ -1355,41 +1488,110 @@ class _OfficialButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton(
+    return CupertinoButton(
       onPressed: onPressed,
-      style: FilledButton.styleFrom(
-        backgroundColor: const Color(0xFF2F95D0),
-        disabledBackgroundColor: const Color(0xFFB6C8D5),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-      ),
-      child: Text(label),
+      color: _AppColors.blue,
+      disabledColor: const Color(0xFFB6C8D5),
+      borderRadius: BorderRadius.circular(10),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+      minimumSize: const Size(0, 38),
+      child: Text(label, style: const TextStyle(color: _AppColors.white)),
     );
   }
 }
 
 class _PrintTestTile extends StatelessWidget {
   const _PrintTestTile({
+    required this.icon,
     required this.title,
     required this.enabled,
     required this.onTap,
+    this.showDivider = true,
   });
 
+  final IconData icon;
   final String title;
   final bool enabled;
   final VoidCallback onTap;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = _Pressable(
+      enabled: enabled,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: enabled ? _AppColors.primary : const Color(0xFF9CA3AF),
+              size: 22,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: enabled ? _AppColors.ink : const Color(0xFF9CA3AF),
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            const Icon(
+              CupertinoIcons.chevron_right,
+              color: _AppColors.blue,
+              size: 18,
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!showDivider) {
+      return content;
+    }
+    return Column(children: [content, const _Hairline()]);
+  }
+}
+
+class _CupertinoField extends StatelessWidget {
+  const _CupertinoField({
+    required this.label,
+    required this.controller,
+    required this.enabled,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ListTile(
-          enabled: enabled,
-          title: Text(title),
-          trailing: const Icon(Icons.chevron_right, color: Color(0xFF0284C7)),
-          onTap: enabled ? onTap : null,
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF55615E),
+          ),
         ),
-        const Divider(height: 1),
+        const SizedBox(height: 6),
+        CupertinoTextField(
+          controller: controller,
+          enabled: enabled,
+          clearButtonMode: OverlayVisibilityMode.editing,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            color: _AppColors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _AppColors.line),
+          ),
+          style: const TextStyle(fontSize: 14, color: _AppColors.ink),
+        ),
       ],
     );
   }
@@ -1406,21 +1608,30 @@ class _InfoTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFE7F3EF),
+        color: _AppColors.mist,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: Theme.of(context).textTheme.labelSmall),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF596863),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 4),
           Text(
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            style: const TextStyle(
+              color: _AppColors.ink,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ],
       ),
@@ -1440,7 +1651,7 @@ class _ResultBox extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF102A27),
+        color: _AppColors.ink,
         borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
@@ -1449,14 +1660,14 @@ class _ResultBox extends StatelessWidget {
           Text(
             title,
             style: const TextStyle(
-              color: Color(0xFFFDE68A),
+              color: _AppColors.accent,
               fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 8),
-          SelectableText(
+          Text(
             value,
-            style: const TextStyle(color: Colors.white, height: 1.35),
+            style: const TextStyle(color: _AppColors.white, height: 1.35),
           ),
         ],
       ),
@@ -1475,13 +1686,13 @@ class _GlassPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.16),
+        color: _AppColors.white.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         '$label  $value',
         style: const TextStyle(
-          color: Colors.white,
+          color: _AppColors.white,
           fontWeight: FontWeight.w700,
         ),
       ),
@@ -1498,16 +1709,17 @@ class _LogCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _SectionCard(
-      icon: Icons.terminal,
+      icon: CupertinoIcons.rectangle_stack,
       title: '调用日志',
       subtitle: '每一步 MethodChannel/EventChannel 调用结果都会记录在这里。',
       children: [
         Align(
           alignment: Alignment.centerRight,
-          child: TextButton.icon(
+          child: _ActionButton(
+            label: '清空',
+            icon: CupertinoIcons.trash,
+            tone: _ActionTone.plain,
             onPressed: onClear,
-            icon: const Icon(Icons.clear_all),
-            label: const Text('清空'),
           ),
         ),
         Container(
@@ -1515,16 +1727,16 @@ class _LogCard extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0xFF081816),
+            color: _AppColors.ink,
             borderRadius: BorderRadius.circular(18),
           ),
           child: logs.isEmpty
-              ? const Text('暂无日志', style: TextStyle(color: Colors.white70))
+              ? const Text('暂无日志', style: TextStyle(color: _AppColors.white70))
               : ListView.separated(
                   shrinkWrap: true,
                   itemCount: logs.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 8),
-                  itemBuilder: (context, index) => SelectableText(
+                  itemBuilder: (context, index) => Text(
                     logs[index],
                     style: const TextStyle(
                       color: Color(0xFFD1FAE5),
@@ -1536,5 +1748,105 @@ class _LogCard extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  const _ActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.tone = _ActionTone.tinted,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final _ActionTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final child = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [Icon(icon, size: 18), const SizedBox(width: 6), Text(label)],
+    );
+
+    return switch (tone) {
+      _ActionTone.filled => CupertinoButton.filled(
+        onPressed: onPressed,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        minimumSize: const Size(0, 40),
+        borderRadius: BorderRadius.circular(12),
+        child: child,
+      ),
+      _ActionTone.tinted => CupertinoButton.tinted(
+        onPressed: onPressed,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        minimumSize: const Size(0, 40),
+        borderRadius: BorderRadius.circular(12),
+        child: child,
+      ),
+      _ActionTone.plain => CupertinoButton(
+        onPressed: onPressed,
+        color: _AppColors.white,
+        foregroundColor: _AppColors.primary,
+        disabledColor: const Color(0xFFE5E7EB),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        minimumSize: const Size(0, 40),
+        borderRadius: BorderRadius.circular(12),
+        child: child,
+      ),
+    };
+  }
+}
+
+class _Pressable extends StatefulWidget {
+  const _Pressable({
+    required this.child,
+    this.enabled = true,
+    this.onTap,
+    this.borderRadius,
+  });
+
+  final Widget child;
+  final bool enabled;
+  final VoidCallback? onTap;
+  final BorderRadius? borderRadius;
+
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.enabled ? widget.onTap : null,
+      onTapDown: widget.enabled ? (_) => setState(() => _pressed = true) : null,
+      onTapCancel: widget.enabled
+          ? () => setState(() => _pressed = false)
+          : null,
+      onTapUp: widget.enabled ? (_) => setState(() => _pressed = false) : null,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 120),
+        opacity: _pressed ? 0.62 : (widget.enabled ? 1 : 0.48),
+        child: DecoratedBox(
+          decoration: BoxDecoration(borderRadius: widget.borderRadius),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+class _Hairline extends StatelessWidget {
+  const _Hairline();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(height: 1, color: _AppColors.line);
   }
 }

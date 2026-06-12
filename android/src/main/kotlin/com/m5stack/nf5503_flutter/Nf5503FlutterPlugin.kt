@@ -19,7 +19,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.lang.reflect.Modifier
 import kotlin.math.ceil
 
-/** Nf5503FlutterPlugin */
+/** Flutter plugin bridge for the NF5503 scanner and printer SDKs. */
 class Nf5503FlutterPlugin :
     FlutterPlugin,
     MethodChannel.MethodCallHandler {

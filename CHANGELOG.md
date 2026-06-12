@@ -1,5 +1,6 @@
 ## 0.0.1
 
-* Initial Android implementation for NF5503 barcode scanning and printing.
-* Exposes ScanManager APIs for scan control, result broadcasts, scan output settings, decoder settings, and symbology configuration.
-* Exposes PrintManager/PrintUtil APIs for printer state, density, fonts, text, barcode, QR code, image, black mark, and line spacing operations.
+- 首个 Android 版本，封装 NF5503 设备的扫码与热敏/标签打印能力。
+- 提供 `ScanManager` 相关 API：扫码开关、广播结果监听、输出模式、解码配置与码制配置。
+- 提供 `PrintManager`/`PrintUtil` 相关 API：打印状态、浓度、字体、文本、条码、二维码、图片、黑标与行距操作。
+- 示例应用改为纯 Cupertino 组件，便于在真机上验证插件调用链路。
