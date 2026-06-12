@@ -21,6 +21,26 @@ enum _PrintPaperType { receipt, label }
 
 enum _ActionTone { filled, tinted, plain }
 
+class _ScanRecord {
+  const _ScanRecord({
+    required this.content,
+    required this.receivedAt,
+    this.action,
+    this.extras = const <String, Object?>{},
+  });
+
+  final String content;
+  final DateTime receivedAt;
+  final String? action;
+  final Map<String, Object?> extras;
+
+  String get time {
+    return '${receivedAt.hour.toString().padLeft(2, '0')}:'
+        '${receivedAt.minute.toString().padLeft(2, '0')}:'
+        '${receivedAt.second.toString().padLeft(2, '0')}';
+  }
+}
+
 class _MyAppState extends State<MyApp> {
   static const _defaultScanAction = 'com.m5stack.nf5503_flutter.SCAN';
   static const _defaultScanKey = 'barcode';
@@ -49,6 +69,8 @@ class _MyAppState extends State<MyApp> {
   String _platformVersion = 'Unknown';
   String _scannerMode = '-';
   String _lastScan = '等待扫码结果';
+  Nf5503ScanResult? _lastScanResult;
+  final _scanRecords = <_ScanRecord>[];
   String _printerVersion = 'Unknown';
   bool? _scannerOpen;
   bool? _printerOpen;
@@ -152,8 +174,27 @@ class _MyAppState extends State<MyApp> {
     _scanSubscription = _plugin.scanner
         .results(action: action, key: key)
         .listen((result) {
-          setState(() => _lastScan = result.data);
-          _log('扫码结果: ${result.data}');
+          if (!mounted) {
+            return;
+          }
+          final scanText = result.data.isEmpty ? '（空扫码内容）' : result.data;
+          setState(() {
+            _lastScan = scanText;
+            _lastScanResult = result;
+            _scanRecords.insert(
+              0,
+              _ScanRecord(
+                content: scanText,
+                action: result.action,
+                extras: result.extras,
+                receivedAt: DateTime.now(),
+              ),
+            );
+            if (_scanRecords.length > 20) {
+              _scanRecords.removeLast();
+            }
+          });
+          _log('扫码内容: $scanText');
         }, onError: (Object error) => _log('扫码监听错误: $error'));
 
     setState(() {
@@ -607,7 +648,7 @@ class _MyAppState extends State<MyApp> {
       debugShowCheckedModeBanner: false,
       title: 'NF5503 Flutter Example',
       theme: const CupertinoThemeData(
-        brightness: Brightness.light,
+        brightness: Brightness.dark,
         primaryColor: _AppColors.primary,
         scaffoldBackgroundColor: _AppColors.paper,
         textTheme: CupertinoTextThemeData(
@@ -689,7 +730,11 @@ class _MyAppState extends State<MyApp> {
           enabled: !_busy,
         ),
         const SizedBox(height: 12),
-        _ResultBox(title: '最近扫码', value: _lastScan),
+        _ResultBox(title: '扫码内容', value: _lastScan, result: _lastScanResult),
+        if (_scanRecords.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          _ScanHistoryPanel(records: _scanRecords),
+        ],
         const SizedBox(height: 12),
         Wrap(
           spacing: 8,
@@ -1640,13 +1685,15 @@ class _InfoTile extends StatelessWidget {
 }
 
 class _ResultBox extends StatelessWidget {
-  const _ResultBox({required this.title, required this.value});
+  const _ResultBox({required this.title, required this.value, this.result});
 
   final String title;
   final String value;
+  final Nf5503ScanResult? result;
 
   @override
   Widget build(BuildContext context) {
+    final extras = result?.extras ?? const <String, Object?>{};
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -1667,7 +1714,137 @@ class _ResultBox extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             value,
-            style: const TextStyle(color: _AppColors.white, height: 1.35),
+            style: const TextStyle(
+              color: _AppColors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              height: 1.35,
+            ),
+          ),
+          if (result != null) ...[
+            const SizedBox(height: 10),
+            _ScanMetaLine(label: 'Action', value: result!.action ?? '-'),
+            _ScanMetaLine(label: 'Extras', value: _formatExtras(extras)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static String _formatExtras(Map<String, Object?> extras) {
+    if (extras.isEmpty) {
+      return '-';
+    }
+    return extras.entries
+        .map((entry) => '${entry.key}=${entry.value ?? 'null'}')
+        .join(', ');
+  }
+}
+
+class _ScanMetaLine extends StatelessWidget {
+  const _ScanMetaLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      '$label: $value',
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: _AppColors.white.withValues(alpha: 0.72),
+        fontSize: 12,
+        height: 1.3,
+      ),
+    );
+  }
+}
+
+class _ScanHistoryPanel extends StatelessWidget {
+  const _ScanHistoryPanel({required this.records});
+
+  final List<_ScanRecord> records;
+
+  @override
+  Widget build(BuildContext context) {
+    return _OfficialPanel(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(14, 12, 14, 8),
+            child: Text(
+              '扫码记录',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+            ),
+          ),
+          for (final record in records.take(5)) ...[
+            _ScanHistoryTile(record: record),
+            if (record != records.take(5).last) const _Hairline(),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ScanHistoryTile extends StatelessWidget {
+  const _ScanHistoryTile({required this.record});
+
+  final _ScanRecord record;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: _AppColors.mist,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              record.time,
+              style: const TextStyle(
+                color: _AppColors.primary,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  record.content,
+                  style: const TextStyle(
+                    color: _AppColors.ink,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (record.action != null || record.extras.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    record.action ?? _ResultBox._formatExtras(record.extras),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ],
       ),
