@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +15,8 @@ class MyApp extends StatefulWidget {
   @override
   State<MyApp> createState() => _MyAppState();
 }
+
+enum _PrintPaperType { receipt, label }
 
 class _MyAppState extends State<MyApp> {
   static const _defaultScanAction = 'com.m5stack.nf5503_flutter.SCAN';
@@ -34,6 +37,7 @@ class _MyAppState extends State<MyApp> {
   final _plugin = Nf5503Flutter();
   final _scanActionController = TextEditingController(text: _defaultScanAction);
   final _scanKeyController = TextEditingController(text: _defaultScanKey);
+  final _blackMarkThresholdController = TextEditingController(text: '120');
   final _logs = <String>[];
 
   StreamSubscription<Nf5503ScanResult>? _scanSubscription;
@@ -47,6 +51,10 @@ class _MyAppState extends State<MyApp> {
   bool? _printerOpen;
   int? _supportPrint;
   int? _lastPrinterState;
+  bool _printServiceEnabled = false;
+  bool _blackMarkThresholdEnabled = true;
+  _PrintPaperType _printPaperType = _PrintPaperType.receipt;
+  String _printFontName = 'Roboto-Regular';
   int _thermalCalibrationDensity = 25;
   bool _busy = false;
 
@@ -62,6 +70,7 @@ class _MyAppState extends State<MyApp> {
     _printSubscription?.cancel();
     _scanActionController.dispose();
     _scanKeyController.dispose();
+    _blackMarkThresholdController.dispose();
     super.dispose();
   }
 
@@ -204,42 +213,206 @@ class _MyAppState extends State<MyApp> {
     final version = await _plugin.printer.getVersion();
     final supportPrint = await _plugin.printer.getSupportPrint();
     final concentration = await _plugin.printer.getConcentration();
+    final fontType = await _plugin.printer.getFontType();
     setState(() {
       _printerOpen = openResult;
+      _printServiceEnabled = openResult;
       _printerVersion = version;
       _supportPrint = supportPrint;
+      _printFontName = fontType.isEmpty ? _printFontName : fontType;
+      _thermalCalibrationDensity = concentration.clamp(1, 40).toInt();
     });
     _log(
       '打印 SDK 打开: open=$openResult, version=$version, support=$supportPrint, density=$concentration',
     );
   }
 
-  Future<void> _printThermalSample() async {
+  Future<void> _setPrintServiceEnabled(bool enabled) async {
+    if (enabled) {
+      await _openPrinter();
+      await _applyPrinterCommonSettings();
+      return;
+    }
+    await _closePrinter();
+  }
+
+  Future<void> _setPaperType(_PrintPaperType type) async {
+    setState(() => _printPaperType = type);
     await _plugin.printer.open();
-    await _plugin.printer.setBlackMark(false);
+    await _plugin.printer.setBlackMark(type == _PrintPaperType.label);
+    setState(() {
+      _printerOpen = true;
+      _printServiceEnabled = true;
+    });
+    _log('打印纸类型: ${type == _PrintPaperType.label ? '热敏标签纸' : '热敏小票纸'}');
+  }
+
+  Future<void> _setPrintDensity(int density) async {
+    await _plugin.printer.open();
+    await _plugin.printer.setConcentration(density);
+    setState(() {
+      _printerOpen = true;
+      _printServiceEnabled = true;
+    });
+    _log('当前打印浓度已设置: $density');
+  }
+
+  Future<void> _selectPrintFont() async {
+    final selectedFont = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(
+                title: Text('选择打印字体'),
+                subtitle: Text('与官方 demo 的字体配置项保持一致'),
+              ),
+              for (final font in const ['Roboto-Regular', 'default'])
+                ListTile(
+                  title: Text(font),
+                  trailing: font == _printFontName
+                      ? const Icon(Icons.check, color: Color(0xFF0284C7))
+                      : null,
+                  onTap: () => Navigator.of(context).pop(font),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+    if (selectedFont == null) {
+      return;
+    }
+    await _plugin.printer.open();
+    await _plugin.printer.setFontType(selectedFont);
+    setState(() {
+      _printFontName = selectedFont;
+      _printerOpen = true;
+      _printServiceEnabled = true;
+    });
+    _log('当前打印字体: $_printFontName');
+  }
+
+  Future<void> _applyPrinterCommonSettings() async {
+    await _plugin.printer.open();
+    await _plugin.printer.setBlackMark(
+      _printPaperType == _PrintPaperType.label,
+    );
     await _plugin.printer.setConcentration(_thermalCalibrationDensity);
     await _plugin.printer.setReverse(false);
     await _plugin.printer.setUnderline(false);
     await _plugin.printer.setBold(false);
-    await _plugin.printer.setLineSpacing(1.1);
+    await _plugin.printer.setLineSpacing(1.0);
+    if (_printPaperType == _PrintPaperType.label &&
+        _blackMarkThresholdEnabled) {
+      await _setBlackMarkThreshold(logResult: false);
+    }
+    setState(() {
+      _printerOpen = true;
+      _printServiceEnabled = true;
+    });
+  }
+
+  Future<void> _setBlackMarkThresholdEnabled(bool enabled) async {
+    final targetPaperType = enabled ? _PrintPaperType.label : _printPaperType;
+    setState(() => _blackMarkThresholdEnabled = enabled);
+    await _plugin.printer.open();
+    await _plugin.printer.setBlackMark(
+      targetPaperType == _PrintPaperType.label,
+    );
+    setState(() {
+      _printerOpen = true;
+      _printServiceEnabled = true;
+      _printPaperType = targetPaperType;
+    });
+    _log('黑标阈值启用开关: $enabled');
+  }
+
+  Future<void> _getBlackMarkThreshold() async {
+    final blackMark = await _plugin.printer.isBlackMark();
+    final state = await _plugin.printer.getState(
+      Nf5503PrinterStateType.checkBlackMark,
+    );
+    setState(() => _lastPrinterState = state);
+    _log(
+      '黑标状态: enabled=$blackMark, state=$state, 当前输入阈值=${_blackMarkThresholdController.text}',
+    );
+  }
+
+  Future<void> _setBlackMarkThreshold({bool logResult = true}) async {
+    final threshold = _blackMarkThreshold();
+    await _plugin.printer.open();
+    await _plugin.printer.setBlackMark(true);
+    final state = await _plugin.printer.setThreshold(threshold);
+    setState(() {
+      _printerOpen = true;
+      _printServiceEnabled = true;
+      _printPaperType = _PrintPaperType.label;
+      _lastPrinterState = state;
+    });
+    if (logResult) {
+      _log('黑标阈值已设置: threshold=$threshold, state=$state');
+    }
+  }
+
+  Future<void> _printBlackMarkTest() async {
+    await _applyPrinterCommonSettings();
     await _plugin.printer.addText(
-      'NF5503 Flutter SDK',
+      'Black Mark Threshold Test',
+      align: Nf5503PrintAlign.center,
+      fontSize: Nf5503PrintFontSize.middle,
+      isBold: true,
+    );
+    await _plugin.printer.addText(
+      'Threshold: ${_blackMarkThreshold()}',
+      align: Nf5503PrintAlign.center,
+    );
+    await _plugin.printer.addText(
+      DateTime.now().toIso8601String(),
+      align: Nf5503PrintAlign.center,
+    );
+    await _plugin.printer.goToNextMark();
+    _log('已提交黑标阈值打印测试');
+  }
+
+  Future<void> _autoCalibrateBlackMark() async {
+    await _setBlackMarkThreshold(logResult: false);
+    await _plugin.printer.goToNextMark();
+    final state = await _plugin.printer.getState(
+      Nf5503PrinterStateType.checkBlackMark,
+    );
+    setState(() => _lastPrinterState = state);
+    _log('已执行自动校准: threshold=${_blackMarkThreshold()}, state=$state');
+  }
+
+  Future<void> _printTextTest() async {
+    await _applyPrinterCommonSettings();
+    await _plugin.printer.addText(
+      'NF5503 Text Print',
       align: Nf5503PrintAlign.center,
       fontSize: Nf5503PrintFontSize.large,
       isBold: true,
     );
+    await _plugin.printer.addText('Paper: ${_paperTypeLabel(_printPaperType)}');
+    await _plugin.printer.addText('Density: $_thermalCalibrationDensity/40');
+    await _plugin.printer.addText('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+    await _plugin.printer.addText('abcdefghijklmnopqrstuvwxyz');
+    await _plugin.printer.addText('0123456789');
+    await _plugin.printer.addBlankLines(3);
+    await _plugin.printer.start();
+    _log('已提交文本打印测试');
+  }
+
+  Future<void> _printBarcodeTest() async {
+    await _applyPrinterCommonSettings();
     await _plugin.printer.addText(
-      'Thermal print sample',
+      'Barcode Print',
       align: Nf5503PrintAlign.center,
       fontSize: Nf5503PrintFontSize.middle,
+      isBold: true,
     );
-    await _plugin.printer.addText('Platform: $_platformVersion');
-    await _plugin.printer.addText('Time: ${DateTime.now().toIso8601String()}');
-    await _plugin.printer.addText(
-      'Density: $_thermalCalibrationDensity/40 '
-      '(gray ${_nativeDensityStep(_thermalCalibrationDensity)}/10)',
-    );
-    await _plugin.printer.addBlankLines(1);
     await _plugin.printer.addBarcode(
       content: 'NF5503-123456',
       height: 80,
@@ -252,65 +425,21 @@ class _MyAppState extends State<MyApp> {
       align: Nf5503PrintAlign.center,
       size: 240,
     );
-    await _plugin.printer.addBlankLines(4);
+    await _plugin.printer.addBlankLines(3);
     await _plugin.printer.start();
-    setState(() => _printerOpen = true);
-    _log('已提交热敏打印样张');
+    _log('已提交条码打印测试');
   }
 
-  Future<void> _printThermalCalibrationSample() async {
-    await _listenPrinterEvents();
-    await _plugin.printer.open();
-    await _plugin.printer.setBlackMark(false);
-    await _plugin.printer.setConcentration(_thermalCalibrationDensity);
-    await _plugin.printer.setReverse(false);
-    await _plugin.printer.setUnderline(false);
-    await _plugin.printer.setBold(false);
-    await _plugin.printer.setLineSpacing(1.0);
-
-    final temp = await _plugin.printer.getState(
-      Nf5503PrinterStateType.checkTemp,
-    );
-    final paper = await _plugin.printer.getState(
-      Nf5503PrinterStateType.checkPaper,
-    );
-
-    await _plugin.printer.addText(
-      'Thermal Calibration',
+  Future<void> _printImageTest() async {
+    await _applyPrinterCommonSettings();
+    final imageBytes = await _buildPrintImageBytes();
+    await _plugin.printer.addImageBytes(
+      imageBytes,
       align: Nf5503PrintAlign.center,
-      fontSize: Nf5503PrintFontSize.large,
-      isBold: true,
-    );
-    await _plugin.printer.addText(
-      'Density $_thermalCalibrationDensity/40  '
-      'gray ${_nativeDensityStep(_thermalCalibrationDensity)}/10',
-      align: Nf5503PrintAlign.center,
-    );
-    await _plugin.printer.addText('Temp state: $temp  Paper state: $paper');
-    await _plugin.printer.addText('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
-    await _plugin.printer.addText('abcdefghijklmnopqrstuvwxyz');
-    await _plugin.printer.addText('0123456789  !@#\$%^&*()_+-=');
-    await _plugin.printer.addText('############################');
-    await _plugin.printer.addText('||||||||||||||||||||||||||||');
-    await _plugin.printer.addText('IIII llll 0000 OOOO 8888 BBBB');
-    await _plugin.printer.addBarcode(
-      content: 'CAL-${_thermalCalibrationDensity.toString().padLeft(2, '0')}',
-      height: 70,
-      type: Nf5503BarcodeType.code128,
-      align: Nf5503PrintAlign.center,
-      hriPosition: Nf5503HriPosition.below,
     );
     await _plugin.printer.addBlankLines(3);
     await _plugin.printer.start();
-    setState(() {
-      _printerOpen = true;
-      _lastPrinterState = paper == Nf5503PrintErrorCode.noError.value
-          ? temp
-          : paper;
-    });
-    _log(
-      '已提交热敏校准样张: density=$_thermalCalibrationDensity, temp=$temp, paper=$paper',
-    );
+    _log('已提交图片打印测试');
   }
 
   Future<void> _printThermalCalibrationScale() async {
@@ -345,9 +474,8 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _printLabelSample() async {
-    await _plugin.printer.open();
-    await _plugin.printer.setBlackMark(true);
-    await _plugin.printer.setConcentration(25);
+    setState(() => _printPaperType = _PrintPaperType.label);
+    await _applyPrinterCommonSettings();
     await _plugin.printer.setUnwindPaperLength(120);
     await _plugin.printer.addText(
       'NF5503 Label Test',
@@ -364,27 +492,12 @@ class _MyAppState extends State<MyApp> {
     _log('已提交标签打印样张并走到下一黑标');
   }
 
-  Future<void> _readPrinterState() async {
-    final version = await _plugin.printer.getVersion();
-    final supportPrint = await _plugin.printer.getSupportPrint();
-    final state = await _plugin.printer.getState(
-      Nf5503PrinterStateType.checkAll,
-    );
-    final fontSize = await _plugin.printer.getFontSize();
-    final concentration = await _plugin.printer.getConcentration();
-    setState(() {
-      _printerVersion = version;
-      _supportPrint = supportPrint;
-      _lastPrinterState = state;
-    });
-    _log(
-      '打印状态: version=$version, support=$supportPrint, state=$state, font=${fontSize.name}, density=$concentration',
-    );
-  }
-
   Future<void> _closePrinter() async {
     final success = await _plugin.printer.close();
-    setState(() => _printerOpen = false);
+    setState(() {
+      _printerOpen = false;
+      _printServiceEnabled = false;
+    });
     _log('closePrinter 返回: $success');
   }
 
@@ -413,6 +526,67 @@ class _MyAppState extends State<MyApp> {
       return 10;
     }
     return step;
+  }
+
+  int _blackMarkThreshold() {
+    final value =
+        int.tryParse(_blackMarkThresholdController.text.trim()) ?? 120;
+    return value.clamp(0, 255).toInt();
+  }
+
+  String _paperTypeLabel(_PrintPaperType type) {
+    return type == _PrintPaperType.label ? '热敏标签纸' : '热敏小票纸';
+  }
+
+  Future<Uint8List> _buildPrintImageBytes() async {
+    const width = 384;
+    const height = 160;
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    final whitePaint = ui.Paint()..color = const ui.Color(0xFFFFFFFF);
+    final blackPaint = ui.Paint()..color = const ui.Color(0xFF000000);
+    final borderPaint = ui.Paint()
+      ..color = const ui.Color(0xFF000000)
+      ..style = ui.PaintingStyle.stroke
+      ..strokeWidth = 4;
+
+    canvas.drawRect(
+      ui.Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+      whitePaint,
+    );
+    canvas.drawRect(
+      ui.Rect.fromLTWH(
+        12,
+        12,
+        (width - 24).toDouble(),
+        (height - 24).toDouble(),
+      ),
+      borderPaint,
+    );
+
+    final title = TextPainter(
+      text: const TextSpan(
+        text: 'NF5503 IMAGE TEST',
+        style: TextStyle(
+          color: Colors.black,
+          fontSize: 28,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: width - 48);
+    title.paint(canvas, const ui.Offset(24, 28));
+
+    for (var index = 0; index < 9; index++) {
+      final left = 24.0 + index * 38;
+      final top = index.isEven ? 86.0 : 104.0;
+      canvas.drawRect(ui.Rect.fromLTWH(left, top, 26, 26), blackPaint);
+    }
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(width, height);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    return byteData!.buffer.asUint8List();
   }
 
   @override
@@ -547,10 +721,11 @@ class _MyAppState extends State<MyApp> {
     final code = state == null
         ? '-'
         : (Nf5503PrintErrorCode.fromValue(state)?.name ?? '$state');
+    final isLabelPaper = _printPaperType == _PrintPaperType.label;
     return _SectionCard(
       icon: Icons.print_outlined,
       title: '打印 SDK 测试',
-      subtitle: '会调用官方 SDK 打开打印、读取版本、提交文本/条码/二维码样张。',
+      subtitle: '按官方 demo 的打印服务配置组织：通用设置、标签校准和打印测试项。',
       children: [
         Row(
           children: [
@@ -579,49 +754,52 @@ class _MyAppState extends State<MyApp> {
           ],
         ),
         const SizedBox(height: 12),
-        _ThermalCalibrationPanel(
-          density: _thermalCalibrationDensity,
-          nativeDensity: _nativeDensityStep(_thermalCalibrationDensity),
+        _PrintServiceSwitchPanel(
+          value: _printServiceEnabled,
           enabled: !_busy,
+          onChanged: (value) => _run(
+            value ? '开启打印服务' : '关闭打印服务',
+            () => _setPrintServiceEnabled(value),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _PrinterCommonSettingsPanel(
+          paperType: _printPaperType,
+          density: _thermalCalibrationDensity,
+          fontName: _printFontName,
+          enabled: !_busy,
+          onPaperTypeChanged: (type) =>
+              _run('设置打印纸类型', () => _setPaperType(type)),
           onDensityChanged: (value) {
             setState(() => _thermalCalibrationDensity = value);
           },
-          onPrintSample: () => _run('热敏校准样张', _printThermalCalibrationSample),
-          onPrintScale: () => _run('热敏浓度校准尺', _printThermalCalibrationScale),
+          onDensityChangeEnd: (value) =>
+              _run('设置打印浓度', () => _setPrintDensity(value)),
+          onFontTap: () => _run('读取打印字体', _selectPrintFont),
         ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            FilledButton.icon(
-              onPressed: _busy ? null : () => _run('打开打印 SDK', _openPrinter),
-              icon: const Icon(Icons.sensors),
-              label: const Text('打开/监听'),
-            ),
-            FilledButton.tonalIcon(
-              onPressed: _busy
-                  ? null
-                  : () => _run('热敏打印样张', _printThermalSample),
-              icon: const Icon(Icons.receipt_long),
-              label: const Text('热敏样张'),
-            ),
-            FilledButton.tonalIcon(
-              onPressed: _busy ? null : () => _run('标签打印样张', _printLabelSample),
-              icon: const Icon(Icons.label_outline),
-              label: const Text('标签样张'),
-            ),
-            OutlinedButton.icon(
-              onPressed: _busy ? null : () => _run('读取打印状态', _readPrinterState),
-              icon: const Icon(Icons.fact_check_outlined),
-              label: const Text('读状态'),
-            ),
-            OutlinedButton.icon(
-              onPressed: _busy ? null : () => _run('关闭打印', _closePrinter),
-              icon: const Icon(Icons.power_settings_new),
-              label: const Text('关闭'),
-            ),
-          ],
+        if (isLabelPaper) ...[
+          _LabelCalibrationPanel(
+            enabled: !_busy,
+            thresholdEnabled: _blackMarkThresholdEnabled,
+            thresholdController: _blackMarkThresholdController,
+            onThresholdEnabledChanged: (value) =>
+                _run('设置黑标阈值启用开关', () => _setBlackMarkThresholdEnabled(value)),
+            onGetThreshold: () => _run('获取黑标阈值', _getBlackMarkThreshold),
+            onSetThreshold: () => _run('设置黑标阈值', _setBlackMarkThreshold),
+            onPrintTest: () => _run('黑标阈值打印测试', _printBlackMarkTest),
+            onAutoCalibrate: () => _run('自动校准黑标', _autoCalibrateBlackMark),
+          ),
+          const SizedBox(height: 12),
+        ],
+        _PrintTestItemsPanel(
+          enabled: !_busy,
+          onTextPrint: () => _run('文本打印', _printTextTest),
+          onBarcodePrint: () => _run('条码打印', _printBarcodeTest),
+          onImagePrint: () => _run('图片打印', _printImageTest),
+          onLabelPrint: () => _run('标签打印', _printLabelSample),
+          onCalibrationScale: () =>
+              _run('热敏浓度校准尺', _printThermalCalibrationScale),
         ),
       ],
     );
@@ -754,94 +932,465 @@ class _SectionCard extends StatelessWidget {
   }
 }
 
-class _ThermalCalibrationPanel extends StatelessWidget {
-  const _ThermalCalibrationPanel({
-    required this.density,
-    required this.nativeDensity,
+class _PrintServiceSwitchPanel extends StatelessWidget {
+  const _PrintServiceSwitchPanel({
+    required this.value,
     required this.enabled,
-    required this.onDensityChanged,
-    required this.onPrintSample,
-    required this.onPrintScale,
+    required this.onChanged,
   });
 
-  final int density;
-  final int nativeDensity;
+  final bool value;
   final bool enabled;
-  final ValueChanged<int> onDensityChanged;
-  final VoidCallback onPrintSample;
-  final VoidCallback onPrintScale;
+  final ValueChanged<bool> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF3D8),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFF2C66D)),
+    return _OfficialPanel(
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '打印服务开关',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: const Color(0xFF1F2933),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Switch(value: value, onChanged: enabled ? onChanged : null),
+        ],
       ),
+    );
+  }
+}
+
+class _PrinterCommonSettingsPanel extends StatelessWidget {
+  const _PrinterCommonSettingsPanel({
+    required this.paperType,
+    required this.density,
+    required this.fontName,
+    required this.enabled,
+    required this.onPaperTypeChanged,
+    required this.onDensityChanged,
+    required this.onDensityChangeEnd,
+    required this.onFontTap,
+  });
+
+  final _PrintPaperType paperType;
+  final int density;
+  final String fontName;
+  final bool enabled;
+  final ValueChanged<_PrintPaperType> onPaperTypeChanged;
+  final ValueChanged<int> onDensityChanged;
+  final ValueChanged<int> onDensityChangeEnd;
+  final VoidCallback onFontTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _OfficialPanel(
+      child: Column(
+        children: [
+          const _OfficialPanelHeader(icon: Icons.build_circle, title: '通用设置'),
+          const SizedBox(height: 14),
+          _ConfigLine(
+            label: '打印纸类型:',
+            child: Wrap(
+              spacing: 10,
+              children: [
+                _PaperRadio(
+                  title: '热敏小票纸',
+                  value: _PrintPaperType.receipt,
+                  groupValue: paperType,
+                  enabled: enabled,
+                  onChanged: onPaperTypeChanged,
+                ),
+                _PaperRadio(
+                  title: '热敏标签纸',
+                  value: _PrintPaperType.label,
+                  groupValue: paperType,
+                  enabled: enabled,
+                  onChanged: onPaperTypeChanged,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _ConfigLine(
+            label: '打印机尺寸:',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _RadioDot(selected: true, enabled: enabled),
+                const SizedBox(width: 8),
+                const Text('2寸(58mm)'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _ConfigLine(
+            label: '当前打印浓度:',
+            child: Row(
+              children: [
+                Expanded(
+                  child: Slider(
+                    value: density.toDouble(),
+                    min: 1,
+                    max: 40,
+                    divisions: 39,
+                    label: '$density',
+                    onChanged: enabled
+                        ? (value) => onDensityChanged(value.round())
+                        : null,
+                    onChangeEnd: enabled
+                        ? (value) => onDensityChangeEnd(value.round())
+                        : null,
+                  ),
+                ),
+                SizedBox(
+                  width: 34,
+                  child: Text(
+                    '$density',
+                    textAlign: TextAlign.right,
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          InkWell(
+            onTap: enabled ? onFontTap : null,
+            borderRadius: BorderRadius.circular(10),
+            child: _ConfigLine(
+              label: '打印字体:',
+              child: Row(
+                children: [
+                  Expanded(child: Text(fontName)),
+                  const Icon(Icons.chevron_right, color: Color(0xFF0284C7)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LabelCalibrationPanel extends StatelessWidget {
+  const _LabelCalibrationPanel({
+    required this.enabled,
+    required this.thresholdEnabled,
+    required this.thresholdController,
+    required this.onThresholdEnabledChanged,
+    required this.onGetThreshold,
+    required this.onSetThreshold,
+    required this.onPrintTest,
+    required this.onAutoCalibrate,
+  });
+
+  final bool enabled;
+  final bool thresholdEnabled;
+  final TextEditingController thresholdController;
+  final ValueChanged<bool> onThresholdEnabledChanged;
+  final VoidCallback onGetThreshold;
+  final VoidCallback onSetThreshold;
+  final VoidCallback onPrintTest;
+  final VoidCallback onAutoCalibrate;
+
+  @override
+  Widget build(BuildContext context) {
+    return _OfficialPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.local_fire_department, color: Color(0xFFB45309)),
+              const Icon(Icons.auto_fix_high, color: Color(0xFF0284C7)),
+              const SizedBox(width: 12),
+              Text('标签校准', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '热敏校准',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: const Color(0xFF78350F),
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              Text(
-                '$density/40',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: const Color(0xFF78350F),
-                  fontWeight: FontWeight.w800,
-                ),
+              const Icon(Icons.help, color: Color(0xFF0284C7)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Expanded(child: Text('黑标阈值启用开关')),
+              Switch(
+                value: thresholdEnabled,
+                onChanged: enabled ? onThresholdEnabledChanged : null,
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            '调整浓度后打印校准样张；原生灰度档位约为 $nativeDensity/10。',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: const Color(0xFF92400E)),
-          ),
-          Slider(
-            value: density.toDouble(),
-            min: 1,
-            max: 40,
-            divisions: 39,
-            label: '$density',
-            activeColor: const Color(0xFFB45309),
-            onChanged: enabled
-                ? (value) => onDensityChanged(value.round())
-                : null,
-          ),
+          const SizedBox(height: 8),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              FilledButton.tonalIcon(
-                onPressed: enabled ? onPrintSample : null,
-                icon: const Icon(Icons.receipt_long),
-                label: const Text('打印校准样张'),
+              const Text('黑标阈值'),
+              SizedBox(
+                width: 92,
+                child: TextField(
+                  controller: thresholdController,
+                  enabled: enabled && thresholdEnabled,
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
+                  ),
+                ),
               ),
-              OutlinedButton.icon(
-                onPressed: enabled ? onPrintScale : null,
-                icon: const Icon(Icons.view_stream_outlined),
-                label: const Text('打印浓度尺'),
+              _OfficialButton(
+                label: '获取',
+                onPressed: enabled ? onGetThreshold : null,
+              ),
+              _OfficialButton(
+                label: '设置',
+                onPressed: enabled && thresholdEnabled ? onSetThreshold : null,
+              ),
+              _OfficialButton(
+                label: '打印测试',
+                onPressed: enabled ? onPrintTest : null,
+              ),
+              _OfficialButton(
+                label: '自动校准',
+                onPressed: enabled && thresholdEnabled ? onAutoCalibrate : null,
               ),
             ],
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PrintTestItemsPanel extends StatelessWidget {
+  const _PrintTestItemsPanel({
+    required this.enabled,
+    required this.onTextPrint,
+    required this.onBarcodePrint,
+    required this.onImagePrint,
+    required this.onLabelPrint,
+    required this.onCalibrationScale,
+  });
+
+  final bool enabled;
+  final VoidCallback onTextPrint;
+  final VoidCallback onBarcodePrint;
+  final VoidCallback onImagePrint;
+  final VoidCallback onLabelPrint;
+  final VoidCallback onCalibrationScale;
+
+  @override
+  Widget build(BuildContext context) {
+    return _OfficialPanel(
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 10),
+            child: _OfficialPanelHeader(icon: Icons.print, title: '打印测试项'),
+          ),
+          _PrintTestTile(title: '文本打印', enabled: enabled, onTap: onTextPrint),
+          _PrintTestTile(
+            title: '条码打印',
+            enabled: enabled,
+            onTap: onBarcodePrint,
+          ),
+          _PrintTestTile(title: '图片打印', enabled: enabled, onTap: onImagePrint),
+          _PrintTestTile(title: '标签打印', enabled: enabled, onTap: onLabelPrint),
+          _PrintTestTile(
+            title: '热敏浓度尺',
+            enabled: enabled,
+            onTap: onCalibrationScale,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OfficialPanel extends StatelessWidget {
+  const _OfficialPanel({
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: padding,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F7F7),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: const Color(0xFFE8E8E8)),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _OfficialPanelHeader extends StatelessWidget {
+  const _OfficialPanelHeader({required this.icon, required this.title});
+
+  final IconData icon;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: const Color(0xFF0284C7)),
+        const SizedBox(width: 12),
+        Text(title, style: Theme.of(context).textTheme.titleMedium),
+      ],
+    );
+  }
+}
+
+class _ConfigLine extends StatelessWidget {
+  const _ConfigLine({required this.label, required this.child});
+
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 112,
+          child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+
+class _PaperRadio extends StatelessWidget {
+  const _PaperRadio({
+    required this.title,
+    required this.value,
+    required this.groupValue,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String title;
+  final _PrintPaperType value;
+  final _PrintPaperType groupValue;
+  final bool enabled;
+  final ValueChanged<_PrintPaperType> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: enabled ? () => onChanged(value) : null,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _RadioDot(selected: value == groupValue, enabled: enabled),
+          const SizedBox(width: 8),
+          Text(title),
+        ],
+      ),
+    );
+  }
+}
+
+class _RadioDot extends StatelessWidget {
+  const _RadioDot({required this.selected, required this.enabled});
+
+  final bool selected;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = enabled ? const Color(0xFF0284C7) : const Color(0xFF9CA3AF);
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: selected ? active : const Color(0xFF111827),
+          width: 2,
+        ),
+      ),
+      child: selected
+          ? Center(
+              child: Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: active,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            )
+          : null,
+    );
+  }
+}
+
+class _OfficialButton extends StatelessWidget {
+  const _OfficialButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFF2F95D0),
+        disabledBackgroundColor: const Color(0xFFB6C8D5),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      ),
+      child: Text(label),
+    );
+  }
+}
+
+class _PrintTestTile extends StatelessWidget {
+  const _PrintTestTile({
+    required this.title,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String title;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        ListTile(
+          enabled: enabled,
+          title: Text(title),
+          trailing: const Icon(Icons.chevron_right, color: Color(0xFF0284C7)),
+          onTap: enabled ? onTap : null,
+        ),
+        const Divider(height: 1),
+      ],
     );
   }
 }

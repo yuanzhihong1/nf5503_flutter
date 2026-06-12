@@ -1,17 +1,11 @@
 # nf5503_flutter_example
 
-Demonstrates how to use the nf5503_flutter plugin.
+Example app for the `nf5503_flutter` plugin.
 
-## Getting Started
+The app provides a device-side probe UI for:
 
-This project is a starting point for a Flutter application.
+- Scanner initialization, broadcast listening, start/stop decode, and configuration reads.
+- Printer open/close, support/version/state reads, density/font/paper settings, and print samples.
+- Label black-mark threshold setup, black-mark movement, and thermal density calibration.
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Run it on an NF5503 Android device so the native scan and print framework services are available.

@@ -224,25 +224,25 @@ enum Nf5503PrintFontSize {
   /// 小号字体。
   small(1),
 
-  /// 更小号字体。
+  /// XSmall 字号。
   xSmall(2),
 
   /// 中号字体。
   middle(3),
 
-  /// 稍大中号字体。
+  /// XMiddle 字号。
   xMiddle(4),
 
   /// 大号字体。
   large(5),
 
-  /// 更大号字体。
+  /// XLarge 字号。
   xLarge(6),
 
   /// 超大字体。
   superSize(7),
 
-  /// 更大超大字体。
+  /// XSuper 字号。
   xSuper(8);
 
   const Nf5503PrintFontSize(this.value);

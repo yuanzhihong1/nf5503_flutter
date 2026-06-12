@@ -25,7 +25,7 @@ abstract class Nf5503FlutterPlatform extends PlatformInterface {
 
   /// 获取当前 Android 平台版本字符串。
   Future<String?> getPlatformVersion() {
-    throw UnimplementedError('platformVersion() has not been implemented.');
+    throw UnimplementedError('getPlatformVersion() has not been implemented.');
   }
 
   /// 监听扫码广播结果，可传入自定义广播 action 和数据 key。
@@ -420,14 +420,14 @@ abstract class Nf5503FlutterPlatform extends PlatformInterface {
     throw UnimplementedError('printerClose() has not been implemented.');
   }
 
-  /// 设置打印浓度。
+  /// 设置打印浓度，传入 1 到 40 的业务值并映射到原生 1 到 10 档。
   Future<void> printerSetConcentration(int density) {
     throw UnimplementedError(
       'printerSetConcentration() has not been implemented.',
     );
   }
 
-  /// 获取当前打印浓度。
+  /// 获取当前打印浓度业务值，原生 1 到 10 档会映射回 4 到 40。
   Future<int> printerGetConcentration() {
     throw UnimplementedError(
       'printerGetConcentration() has not been implemented.',
