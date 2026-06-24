@@ -10,13 +10,19 @@ import android.content.IntentFilter
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import com.example.lc_print_sdk.PrintUtil
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.StandardMethodCodec
 import java.lang.reflect.Modifier
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import kotlin.math.ceil
 
 /** Flutter plugin bridge for the NF5503 scanner and printer SDKs. */
@@ -29,13 +35,23 @@ class Nf5503FlutterPlugin :
     private lateinit var printerEventChannel: EventChannel
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    // Vendor scanner/printer calls are serialized off the Android main thread.
+    @Volatile
+    private var apiExecutor: ExecutorService = newApiExecutor()
+    private lateinit var scanHandlerThread: HandlerThread
+    private lateinit var scanHandler: Handler
     private var scanner: ScanManager? = null
     private var printer: PrintManager? = null
     private var printUtil: PrintUtil? = null
+    @Volatile
     private var scannerEvents: EventChannel.EventSink? = null
+    @Volatile
     private var printerEvents: EventChannel.EventSink? = null
+    @Volatile
     private var scanReceiver: BroadcastReceiver? = null
+    @Volatile
     private var scanAction: String? = null
+    @Volatile
     private var scanKey: String? = null
 
     private val printListener =
@@ -52,9 +68,32 @@ class Nf5503FlutterPlugin :
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         appContext = flutterPluginBinding.applicationContext
-        methodChannel = MethodChannel(flutterPluginBinding.binaryMessenger, "nf5503_flutter")
-        scannerEventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "nf5503_flutter/scanner")
-        printerEventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "nf5503_flutter/printer")
+        if (apiExecutor.isShutdown) {
+            apiExecutor = newApiExecutor()
+        }
+        scanHandlerThread = HandlerThread("nf5503-scan-broadcast").also { it.start() }
+        scanHandler = Handler(scanHandlerThread.looper)
+
+        val messenger = flutterPluginBinding.binaryMessenger
+        val taskQueue = messenger.makeBackgroundTaskQueue()
+        methodChannel = MethodChannel(
+            messenger,
+            "nf5503_flutter",
+            StandardMethodCodec.INSTANCE,
+            taskQueue,
+        )
+        scannerEventChannel = EventChannel(
+            messenger,
+            "nf5503_flutter/scanner",
+            StandardMethodCodec.INSTANCE,
+            taskQueue,
+        )
+        printerEventChannel = EventChannel(
+            messenger,
+            "nf5503_flutter/printer",
+            StandardMethodCodec.INSTANCE,
+            taskQueue,
+        )
 
         methodChannel.setMethodCallHandler(this)
         scannerEventChannel.setStreamHandler(scannerStreamHandler)
@@ -62,6 +101,15 @@ class Nf5503FlutterPlugin :
     }
 
     override fun onMethodCall(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        runApiAsync(result) {
+            handleMethodCall(call, result)
+        }
+    }
+
+    private fun handleMethodCall(
         call: MethodCall,
         result: MethodChannel.Result,
     ) {
@@ -348,11 +396,46 @@ class Nf5503FlutterPlugin :
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        unregisterScanReceiver()
-        removePrintListener()
         methodChannel.setMethodCallHandler(null)
         scannerEventChannel.setStreamHandler(null)
         printerEventChannel.setStreamHandler(null)
+        scannerEvents = null
+        printerEvents = null
+        mainHandler.removeCallbacksAndMessages(null)
+
+        runCatching {
+            apiExecutor.execute {
+                unregisterScanReceiver()
+                removePrintListener()
+            }
+        }
+        apiExecutor.shutdown()
+        if (::scanHandlerThread.isInitialized) {
+            scanHandlerThread.quitSafely()
+        }
+    }
+
+    private fun runApiAsync(
+        result: MethodChannel.Result,
+        block: () -> Unit,
+    ) {
+        try {
+            apiExecutor.execute(block)
+        } catch (error: RejectedExecutionException) {
+            result.error("NF5503_ERROR", error.message, null)
+        }
+    }
+
+    private fun <T> runApiBlocking(block: () -> T): T {
+        return try {
+            apiExecutor.submit<T> { block() }.get()
+        } catch (error: ExecutionException) {
+            val cause = error.cause ?: error
+            throw (cause as? RuntimeException) ?: RuntimeException(cause)
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw RuntimeException(error)
+        }
     }
 
     private fun ensureScanner(): ScanManager {
@@ -431,49 +514,58 @@ class Nf5503FlutterPlugin :
     private val scannerStreamHandler =
         object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
-                scannerEvents = events
-                val args = arguments as? Map<*, *>
-                scanAction =
-                    args?.get("action")?.toString()?.takeIf { it.isNotBlank() }
-                        ?: ensureScanner().broadcastAction?.takeIf { it.isNotBlank() }
-                scanKey =
-                    args?.get("key")?.toString()?.takeIf { it.isNotBlank() }
-                        ?: ensureScanner().broadcastKey?.takeIf { it.isNotBlank() }
+                runApiBlocking {
+                    scannerEvents = events
+                    val args = arguments as? Map<*, *>
+                    scanAction =
+                        args?.get("action")?.toString()?.takeIf { it.isNotBlank() }
+                            ?: ensureScanner().broadcastAction?.takeIf { it.isNotBlank() }
+                    scanKey =
+                        args?.get("key")?.toString()?.takeIf { it.isNotBlank() }
+                            ?: ensureScanner().broadcastKey?.takeIf { it.isNotBlank() }
 
-                val action = scanAction
-                if (action == null) {
-                    events.error(
-                        "NF5503_SCAN_BROADCAST",
-                        "Scanner broadcast action is empty.",
-                        null,
-                    )
-                    return
+                    val action = scanAction
+                    if (action == null) {
+                        postScannerError(
+                            events,
+                            "NF5503_SCAN_BROADCAST",
+                            "Scanner broadcast action is empty.",
+                        )
+                        return@runApiBlocking
+                    }
+                    registerScanReceiver(action)
                 }
-                registerScanReceiver(action)
             }
 
             override fun onCancel(arguments: Any?) {
-                unregisterScanReceiver()
-                scannerEvents = null
+                runApiBlocking {
+                    unregisterScanReceiver()
+                    scannerEvents = null
+                }
             }
         }
 
     private val printerStreamHandler =
         object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
-                printerEvents = events
-                ensurePrinter().addPrintListener(printListener)
-                postPrinterEvent(
-                    mapOf(
-                        "type" to "version",
-                        "version" to ensurePrinter().printerVer.orEmpty(),
-                    ),
-                )
+                runApiBlocking {
+                    printerEvents = events
+                    val printer = ensurePrinter()
+                    printer.addPrintListener(printListener)
+                    postPrinterEvent(
+                        mapOf(
+                            "type" to "version",
+                            "version" to printer.printerVer.orEmpty(),
+                        ),
+                    )
+                }
             }
 
             override fun onCancel(arguments: Any?) {
-                removePrintListener()
-                printerEvents = null
+                runApiBlocking {
+                    removePrintListener()
+                    printerEvents = null
+                }
             }
         }
 
@@ -487,7 +579,7 @@ class Nf5503FlutterPlugin :
                 ) {
                     val extras = bundleToMap(intent)
                     val data = scanKey?.let { intent.extras?.get(it)?.toString() }
-                    scannerEvents?.success(
+                    postScannerEvent(
                         mapOf(
                             "action" to intent.action,
                             "data" to (data ?: firstStringExtra(extras).orEmpty()),
@@ -499,10 +591,16 @@ class Nf5503FlutterPlugin :
         scanReceiver = receiver
         val filter = IntentFilter(action)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            appContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            appContext.registerReceiver(
+                receiver,
+                filter,
+                null,
+                scanHandler,
+                Context.RECEIVER_NOT_EXPORTED,
+            )
         } else {
             @Suppress("DEPRECATION")
-            appContext.registerReceiver(receiver, filter)
+            appContext.registerReceiver(receiver, filter, null, scanHandler)
         }
     }
 
@@ -519,6 +617,22 @@ class Nf5503FlutterPlugin :
     private fun postPrinterEvent(event: Map<String, Any?>) {
         mainHandler.post {
             printerEvents?.success(event)
+        }
+    }
+
+    private fun postScannerEvent(event: Map<String, Any?>) {
+        mainHandler.post {
+            scannerEvents?.success(event)
+        }
+    }
+
+    private fun postScannerError(
+        events: EventChannel.EventSink,
+        code: String,
+        message: String,
+    ) {
+        mainHandler.post {
+            events.error(code, message, null)
         }
     }
 
@@ -539,6 +653,14 @@ class Nf5503FlutterPlugin :
 
     private fun firstStringExtra(extras: Map<String, Any?>): String? {
         return extras.values.firstOrNull { it is String } as? String
+    }
+}
+
+private fun newApiExecutor(): ExecutorService {
+    return Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "nf5503-api").apply {
+            isDaemon = true
+        }
     }
 }
 

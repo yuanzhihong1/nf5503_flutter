@@ -14,6 +14,7 @@ internal class Nf5503FlutterPluginTest {
         val mockResult: MethodChannel.Result = Mockito.mock(MethodChannel.Result::class.java)
         plugin.onMethodCall(call, mockResult)
 
-        Mockito.verify(mockResult).success("Android " + android.os.Build.VERSION.RELEASE)
+        Mockito.verify(mockResult, Mockito.timeout(1000))
+            .success("Android " + android.os.Build.VERSION.RELEASE)
     }
 }
