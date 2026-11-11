@@ -420,7 +420,7 @@ abstract class Nf5503FlutterPlatform extends PlatformInterface {
     throw UnimplementedError('printerClose() has not been implemented.');
   }
 
-  /// 设置打印浓度，传入 1 到 40 的业务值并映射到原生 1 到 10 档。
+  /// 设置打印浓度，传入官方 1 到 39 的业务值并映射到原生 1 到 10 档。
   Future<void> printerSetConcentration(int density) {
     throw UnimplementedError(
       'printerSetConcentration() has not been implemented.',

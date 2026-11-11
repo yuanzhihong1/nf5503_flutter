@@ -80,4 +80,6 @@ dependencies {
 
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.mockito:mockito-core:5.0.0")
+    testImplementation(files("libs/ScanManager_V202105081630.jar"))
+    testImplementation(files("libs/PrinterAPI_V202108242200.jar"))
 }

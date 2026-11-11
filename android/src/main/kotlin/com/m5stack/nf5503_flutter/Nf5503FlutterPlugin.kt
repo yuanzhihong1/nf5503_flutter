@@ -23,7 +23,6 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
-import kotlin.math.ceil
 
 /** Flutter plugin bridge for the NF5503 scanner and printer SDKs. */
 class Nf5503FlutterPlugin :
@@ -34,7 +33,7 @@ class Nf5503FlutterPlugin :
     private lateinit var scannerEventChannel: EventChannel
     private lateinit var printerEventChannel: EventChannel
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
     // Vendor scanner/printer calls are serialized off the Android main thread.
     @Volatile
     private var apiExecutor: ExecutorService = newApiExecutor()
@@ -278,7 +277,7 @@ class Nf5503FlutterPlugin :
                 "printer.open" -> result.success(ensurePrinter().open())
                 "printer.close" -> result.success(ensurePrinter().close())
                 "printer.setConcentration" -> {
-                    ensurePrinter().setDensity(densityToNative(call.intArg("density")))
+                    ensurePrinter().setDensity(concentrationToNative(call.intArg("density")))
                     result.success(null)
                 }
                 "printer.getConcentration" -> result.success(ensurePrinter().density * 4)
@@ -448,10 +447,6 @@ class Nf5503FlutterPlugin :
 
     private fun ensurePrintUtil(): PrintUtil {
         return printUtil ?: PrintUtil.getInstance(appContext).also { printUtil = it }
-    }
-
-    private fun densityToNative(density: Int): Int {
-        return ceil(density / 4.0).toInt()
     }
 
     private fun getSymbologyListByReflection(): List<Map<String, Any?>> {
@@ -654,6 +649,20 @@ class Nf5503FlutterPlugin :
     private fun firstStringExtra(extras: Map<String, Any?>): String? {
         return extras.values.firstOrNull { it is String } as? String
     }
+}
+
+internal const val MIN_PRINT_CONCENTRATION = 1
+internal const val MAX_PRINT_CONCENTRATION = 39
+
+/**
+ * Matches `PrintUtil.printConcentration(int)` from the NF5502/NF5503 SDK:
+ * `density / 4 + 1` using integer division, producing native levels 1..10.
+ */
+internal fun concentrationToNative(density: Int): Int {
+    require(density in MIN_PRINT_CONCENTRATION..MAX_PRINT_CONCENTRATION) {
+        "density must be between $MIN_PRINT_CONCENTRATION and $MAX_PRINT_CONCENTRATION"
+    }
+    return density / 4 + 1
 }
 
 private fun newApiExecutor(): ExecutorService {

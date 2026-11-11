@@ -45,6 +45,7 @@ class _MyAppState extends State<MyApp> {
   static const _defaultScanAction = 'com.m5stack.nf5503_flutter.SCAN';
   static const _defaultScanKey = 'barcode';
   static const _thermalCalibrationDensities = <int>[
+    1,
     4,
     8,
     12,
@@ -54,7 +55,6 @@ class _MyAppState extends State<MyApp> {
     28,
     32,
     36,
-    40,
   ];
 
   final _plugin = Nf5503Flutter();
@@ -268,7 +268,7 @@ class _MyAppState extends State<MyApp> {
       _printerVersion = version;
       _supportPrint = supportPrint;
       _printFontName = fontType.isEmpty ? _printFontName : fontType;
-      _thermalCalibrationDensity = concentration.clamp(1, 40).toInt();
+      _thermalCalibrationDensity = concentration.clamp(1, 39).toInt();
     });
     _log(
       '打印 SDK 打开: open=$openResult, version=$version, support=$supportPrint, density=$concentration',
@@ -449,7 +449,7 @@ class _MyAppState extends State<MyApp> {
       isBold: true,
     );
     await _plugin.printer.addText('Paper: ${_paperTypeLabel(_printPaperType)}');
-    await _plugin.printer.addText('Density: $_thermalCalibrationDensity/40');
+    await _plugin.printer.addText('Density: $_thermalCalibrationDensity/39');
     await _plugin.printer.addText('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
     await _plugin.printer.addText('abcdefghijklmnopqrstuvwxyz');
     await _plugin.printer.addText('0123456789');
@@ -508,7 +508,7 @@ class _MyAppState extends State<MyApp> {
       await _waitForPrinterIdle();
       await _plugin.printer.setConcentration(density);
       await _plugin.printer.addText(
-        'Density $density/40  gray ${_nativeDensityStep(density)}/10',
+        'Density $density/39  gray ${_nativeDensityStep(density)}/10',
         align: Nf5503PrintAlign.center,
         fontSize: Nf5503PrintFontSize.small,
         isBold: true,
@@ -523,7 +523,7 @@ class _MyAppState extends State<MyApp> {
     }
 
     setState(() => _printerOpen = true);
-    _log('已提交热敏浓度校准尺: 4/8/.../40');
+    _log('已提交热敏浓度校准尺: 1/4/8/.../36');
   }
 
   Future<void> _printLabelSample() async {
@@ -571,14 +571,8 @@ class _MyAppState extends State<MyApp> {
   }
 
   int _nativeDensityStep(int density) {
-    final step = (density / 4).ceil();
-    if (step < 1) {
-      return 1;
-    }
-    if (step > 10) {
-      return 10;
-    }
-    return step;
+    // 官方 PrintUtil.printConcentration 使用整数除法后加 1。
+    return (density ~/ 4 + 1).clamp(1, 10).toInt();
   }
 
   int _blackMarkThreshold() {
@@ -1154,8 +1148,8 @@ class _PrinterCommonSettingsPanel extends StatelessWidget {
                   child: CupertinoSlider(
                     value: density.toDouble(),
                     min: 1,
-                    max: 40,
-                    divisions: 39,
+                    max: 39,
+                    divisions: 38,
                     activeColor: _AppColors.primary,
                     onChanged: enabled
                         ? (value) => onDensityChanged(value.round())

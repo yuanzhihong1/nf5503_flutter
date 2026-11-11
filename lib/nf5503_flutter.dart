@@ -297,7 +297,7 @@ class Nf5503Printer {
   /// 关闭打印机，返回原生 SDK 是否关闭成功。
   Future<bool> close() => _platform.printerClose();
 
-  /// 设置打印浓度，传入 1 到 40 的业务值并映射到原生 1 到 10 档。
+  /// 设置打印浓度，传入官方 1 到 39 的业务值并映射到原生 1 到 10 档。
   Future<void> setConcentration(int density) {
     return _platform.printerSetConcentration(density);
   }

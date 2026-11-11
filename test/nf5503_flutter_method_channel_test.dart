@@ -81,6 +81,13 @@ void main() {
     ]);
   });
 
+  test('printerSetConcentration passes SDK density value', () async {
+    await platform.printerSetConcentration(25);
+
+    expect(methodCalls.single.method, 'printer.setConcentration');
+    expect(methodCalls.single.arguments, <String, Object?>{'density': 25});
+  });
+
   test('printerAddText passes text options', () async {
     await platform.printerAddText(
       'hello',

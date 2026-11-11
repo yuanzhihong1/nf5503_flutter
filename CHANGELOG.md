@@ -1,3 +1,9 @@
+## 0.0.3
+
+- 修正打印浓度 API：范围与官方 SDK 对齐为 1~39，并采用 `density / 4 + 1` 的原生档位映射。
+- 更新示例中的浓度滑杆和校准尺，避免传入官方范围外的 40。
+- 补充打印浓度原生与 MethodChannel 测试，并完善打印扩展 API 和扫码结束符的文档说明。
+
 ## 0.0.2
 
 - Android 原生 MethodChannel/EventChannel 切换到后台 TaskQueue，并通过专用串行线程执行所有 ScanManager、PrintManager 和 PrintUtil 调用，避免阻塞主线程。

@@ -34,7 +34,7 @@ enum Nf5503ScanEndMark {
   /// 不追加结束符。
   none(0),
 
-  /// 追加回车符。
+  /// 追加换行符 LF，对应 `END_MARK_LINEFEEDS_MODE`。
   enter(1),
 
   /// 追加 Tab 符。

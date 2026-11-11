@@ -17,7 +17,7 @@
 
 ```yaml
 dependencies:
-  nf5503_flutter: ^0.0.1
+  nf5503_flutter: ^0.0.3
 ```
 
 本仓库内运行示例时，示例应用通过 path 依赖引用插件源码：
@@ -126,7 +126,7 @@ flutter run
 | `events()` | 监听版本回调和 `PrinterBinderListener` 状态回调。 |
 | `getVersion()` | 读取打印机版本。 |
 | `open()`、`close()` | 打开/关闭打印服务。 |
-| `setConcentration()`、`getConcentration()` | 设置/读取打印浓度；Flutter 层使用 1-40 的业务值并映射到原生 1-10 档。 |
+| `setConcentration()`、`getConcentration()` | 设置/读取打印浓度；Flutter 层使用官方 1-39 的浓度值，并按 SDK 的 `density / 4 + 1` 规则映射到原生 1-10 档。 |
 | `reset()` | 重置打印机。 |
 | `setFontType/getFontType` | 设置/读取字体。 |
 | `setFontSize/getFontSize` | 设置/读取字号。 |
@@ -147,6 +147,8 @@ flutter run
 | `setLineSpacing/getLineSpacing` | 设置/读取行距。 |
 | `getSupportPrint()` | 查询设备打印支持状态。 |
 | `getState()` | 查询指定打印状态。 |
+
+> `setFontType/getFontType`、`setThreshold()`、`getState()` 是本插件对系统 `PrintManager` 的扩展能力；`5502A` 的公开 `PrintUtil` 指南未定义这三组接口，但底层 `PrinterAPI` JAR 支持。
 
 ## 值类型
 
