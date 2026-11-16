@@ -8,7 +8,6 @@ topics:
   - barcode
   - nfc
   - printer
-  - thermal-printer
   - m5stack
 platforms:
   android:
