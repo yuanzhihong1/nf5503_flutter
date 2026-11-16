@@ -56,4 +56,50 @@ internal class Nf5503FlutterPluginTest {
         Mockito.verify(mockResult, Mockito.timeout(1000))
             .success("Android " + android.os.Build.VERSION.RELEASE)
     }
+    @Test
+    fun parseNdefTextPayload_decodesUtf8TextAndLanguage() {
+        val payload =
+            byteArrayOf(
+                0x02,
+                'e'.code.toByte(),
+                'n'.code.toByte(),
+                'H'.code.toByte(),
+                'i'.code.toByte(),
+            )
+
+        val parsed = parseNdefTextPayload(payload)
+
+        assertEquals("Hi", parsed?.text)
+        assertEquals("en", parsed?.languageCode)
+    }
+
+    @Test
+    fun parseNdefTextPayload_decodesUtf16Text() {
+        val textBytes = "测试".toByteArray(Charsets.UTF_16)
+        val payload =
+            byteArrayOf(
+                (0x80 or 0x02).toByte(),
+                'z'.code.toByte(),
+                'h'.code.toByte(),
+            ) + textBytes
+
+        val parsed = parseNdefTextPayload(payload)
+
+        assertEquals("测试", parsed?.text)
+        assertEquals("zh", parsed?.languageCode)
+    }
+
+    @Test
+    fun parseNdefTextPayload_rejectsMalformedLanguageLength() {
+        assertEquals(null, parseNdefTextPayload(byteArrayOf(0x05, 'e'.code.toByte())))
+    }
+
+    @Test
+    fun bytesToHex_usesUppercaseAndLeadingZeroes() {
+        assertEquals(
+            "04AB00FF",
+            bytesToHex(byteArrayOf(0x04, 0xAB.toByte(), 0x00, 0xFF.toByte())),
+        )
+    }
+
 }

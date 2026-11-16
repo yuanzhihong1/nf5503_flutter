@@ -1,16 +1,17 @@
 # nf5503_flutter
 
-`nf5503_flutter` 是面向 M5Stack NF5503 Android 设备的 Flutter 插件，封装条码扫码、热敏小票打印和标签黑标打印能力。
+`nf5503_flutter` 是面向 M5Stack NF5503 Android 设备的 Flutter 插件，封装条码扫码、NFC 读写、热敏小票打印和标签黑标打印能力。
 
-插件当前仅实现 Android 平台。扫码和打印 API 依赖 NF5503 固件/系统框架服务，请在 NF5503 真机上运行；普通模拟器或其它 Android 设备通常无法提供对应能力。
+插件当前仅实现 Android 平台。扫码和打印 API 依赖 NF5503 固件/系统框架服务；NFC 使用 Android 标准 NFC Reader Mode。扫码与打印请在 NF5503 真机上验证，普通模拟器通常无法提供对应能力。
 
 ## 功能特性
 
 - 扫码：打开/关闭扫描头、开始/停止解码、广播结果监听、输出模式、编码模式、前后缀、提示音、震动、连续扫码、多码识读、码制启停与参数配置。
 - 完整 SDK 常量：自动镜像官方 JAR 中 ParamID、SymbologyID、灯光、OCR、引擎、Postal、SymbologyFlags 和 ScanConfig 的全部 466 个公开常量。
 - 原始广播数据：同时提供文本、原始字节、Code ID、条码类型、AIM ID、AIM Modifier、长度和完整 extras。
+- NFC：前台 Reader Mode 标签发现、NFC 硬件状态、NDEF 文本/URI/MIME/原始消息读写、只读锁定，以及 Mifare Classic 鉴权、块读写、值块、原始 transceive 和扇区密钥修改。
 - 打印：打开/关闭打印服务、版本/状态回调、浓度、字体、字号、加粗、下划线、反白、文本、条码、二维码、图片、走纸、黑标和行距设置。
-- 示例：`example/lib/main.dart` 提供纯 Cupertino 组件的真机调试界面，可验证扫码、打印、黑标和浓度校准流程。
+- 示例：`example/lib/main.dart` 提供纯 Cupertino 组件的真机调试界面，可验证扫码、NFC、打印、黑标和浓度校准流程。
 - 原生 SDK：项目随包包含 NF5503 官方 SDK jar，用于编译期对齐原生接口。
 
 ## 安装
@@ -19,7 +20,7 @@
 
 ```yaml
 dependencies:
-  nf5503_flutter: ^0.0.4
+  nf5503_flutter: ^0.1.0
 ```
 
 本仓库内运行示例时，示例应用通过 path 依赖引用插件源码：
@@ -69,6 +70,40 @@ Future<void> configureScanner() async {
   print('scanner=$scannerTypeId, symbologies=${symbologies.length}');
 }
 
+Future<void> nfcExample() async {
+  final status = await nf5503.nfc.getStatus();
+  if (!status.supported || !status.enabled) {
+    await nf5503.nfc.openSettings();
+    return;
+  }
+
+  final subscription = nf5503.nfc.events().listen((event) async {
+    if (event.type == Nf5503NfcEventType.tag) {
+      final message = await nf5503.nfc.readNdef();
+      print('NFC UID: ${event.tag?.idHex}');
+      print('NDEF: ${message?.firstText}');
+    }
+  });
+
+  await nf5503.nfc.startDiscovery();
+  // 页面销毁时：
+  // await subscription.cancel();
+  // await nf5503.nfc.stopDiscovery();
+}
+
+Future<void> writeNfcExample() async {
+  await nf5503.nfc.writeNdefText('NF5503 NFC', languageCode: 'zh-CN');
+  await nf5503.nfc.writeNdefUri('https://m5stack.com');
+}
+
+Future<void> readMifareExample() async {
+  final data = await nf5503.nfc.readMifareBlockWithKey(
+    blockIndex: 4,
+    key: Nf5503MifareClassicConstants.keyDefault,
+  );
+  print(data);
+}
+
 Future<void> printSample() async {
   await nf5503.printer.open();
   await nf5503.printer.setConcentration(24);
@@ -96,15 +131,17 @@ flutter run
 
 - 初始化扫码广播并监听结果。
 - 手动开始/停止扫码，读取当前扫码配置。
+- NFC 标签监听、状态诊断、NDEF 读写和 Mifare Classic 块/Key 调试。
 - 开关打印服务，读取版本、状态和支持模块。
 - 设置热敏小票纸/标签纸、打印浓度、字体和黑标阈值。
 - 打印文本、条码、二维码、图片、标签样张和热敏浓度校准尺。
 
 ## API 结构
 
-公共 API 由两个门面组成：
+公共 API 由三个门面组成：
 
 - `Nf5503Scanner`：扫码相关能力。
+- `Nf5503Nfc`：Android NFC Reader Mode、NDEF 与 Mifare Classic 能力。
 - `Nf5503Printer`：打印相关能力。
 
 ### 扫码 API
@@ -138,6 +175,32 @@ flutter run
 | `enableAll1dSymbologies()`、`enableAll2dSymbologies()` | 启停全部一维码或二维码码制。 |
 | `isSymbologyEnabled()`、`isSymbologySupported()` | 查询码制是否启用/支持。 |
 | `reset()` | 恢复扫码配置。 |
+
+### NFC API
+
+| Flutter API | 对齐的原生能力 |
+| --- | --- |
+| `events()` | Reader Mode 标签发现、标签切换、NFC 开关状态和错误事件。 |
+| `isSupported()`、`isEnabled()`、`getStatus()` | `NfcAdapter` 硬件、开关和 Reader Mode 状态。 |
+| `openSettings()` | 打开 `Settings.ACTION_NFC_SETTINGS`。 |
+| `startDiscovery()`、`stopDiscovery()` | 启动/停止前台 Reader Mode。 |
+| `getCurrentTag()` | 当前标签 UID、技术列表、NDEF 与 Mifare Classic 能力。 |
+| `readNdef()` | 读取当前 NDEF 消息并解析 Text、URI、MIME、Smart Poster 和原始记录。 |
+| `writeNdefText()`、`writeNdefUri()`、`writeNdefMime()` | 写入标准 NDEF 记录。 |
+| `writeNdefMessage()` | 写入完整 NDEF 原始消息；支持自动格式化 `NdefFormatable` 标签。 |
+| `makeNdefReadOnly()` | 调用 `Ndef.makeReadOnly()`。 |
+| `connectMifare()`、`closeMifare()`、`isMifareConnected()` | `MifareClassic` 连接管理。 |
+| `authenticateMifareSector()` | Key A / Key B 扇区鉴权。 |
+| `readMifareBlock()`、`writeMifareBlock()`、`transceiveMifare()` | 16 字节块读写和原始 transceive。 |
+| `incrementMifareBlock()`、`decrementMifareBlock()`、`restoreMifareBlock()`、`transferMifareBlock()` | Mifare 值块操作。 |
+| `mifareBlockToSector()`、`mifareSectorToBlock()`、`mifareBlockCountInSector()` | 扇区/块映射。 |
+| `mifareBlockCount()`、`mifareSectorCount()`、`mifareSize()`、`mifareType()`、`mifareMaxTransceiveLength()` | 标签能力查询。 |
+| `readMifareBlockWithKey()`、`writeMifareBlockWithKey()` | 自动连接、鉴权、操作并断开。 |
+| `changeMifareSectorKey()` | 修改扇区尾块 Key A/Key B，同时保留访问位和另一把密钥。 |
+
+> NDEF 写入/格式化、只读锁定和 Mifare 块/Key 修改会永久修改标签，业务界面应先做二次确认。
+>
+> NFC Reader Mode 仅在包含 Flutter 页面的 Activity 位于前台时工作。
 
 ### 打印 API
 
@@ -174,6 +237,8 @@ flutter run
 
 - `Nf5503ScanOutputMode`、`Nf5503ScanEndMark`、`Nf5503ScanDecodeMode` 和 `Nf5503ScannerType` 对齐 NF5503 扫码常量。
 - `Nf5503PrintAlign`、`Nf5503PrintFontSize`、`Nf5503BarcodeType`、`Nf5503HriPosition`、`Nf5503PrinterStateType` 和 `Nf5503PrintErrorCode` 对齐打印常量。
+- `Nf5503NfcStatus`、`Nf5503NfcEvent`、`Nf5503NfcTagInfo`、`Nf5503NdefMessage`、`Nf5503NdefRecord` 和 `Nf5503MifareClassicInfo` 描述 NFC 事件与标签数据。
+- `Nf5503MifareClassicConstants` 提供官方默认 Key、Mifare Key、NFC Forum Key，以及 6 字节密钥/16 字节块长度。
 - `Nf5503ScanResult` 提供 `data`、`rawData`、`codeId`、`barcodeType`、`aimId`、`aimIdBytes`、`length`、`aimModifier` 和完整 `extras`。
 - `Nf5503ScanParamId`、`Nf5503ScanSymbologyId`、`Nf5503ScanLightsMode`、`Nf5503ScanEngineId`、`Nf5503ScanOcrMode`、`Nf5503ScanConfig` 等常量类完整镜像官方 JAR。
 - 未配置广播 Action/Key 时默认使用 `Nf5503ScanBroadcast.defaultAction`（`scan.rcv.message`）和 `defaultKey`（`barcodeData`）。
@@ -185,6 +250,8 @@ flutter run
 - `lcprintsdk1.1-classes.jar` 随插件打包，用于 `PrintUtil` 的标签黑标走纸和打印支持探测。
 - 高级码制参数以整数透传，并由生成器从官方 JAR 同步全部 `DecoderConfigValues` 常量，避免业务代码手写魔法数。
 - 完整逐方法审计见 [`doc/scanner_sdk_api_alignment.md`](doc/scanner_sdk_api_alignment.md)。
+- NFC 使用 Android 前台 Reader Mode，插件 Manifest 自动合并 `android.permission.NFC` 和 `android.hardware.nfc`（`required=false`）。
+- NFC 文档能力对照见 [`doc/nfc_api_alignment.md`](doc/nfc_api_alignment.md)。
 
 ## 开发与验证
 

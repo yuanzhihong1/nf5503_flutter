@@ -21,4 +21,12 @@ void main() {
     // just assert that some non-empty string is returned.
     expect(version?.isNotEmpty, true);
   });
+  testWidgets('NFC status bridge responds', (WidgetTester tester) async {
+    final Nf5503Flutter plugin = Nf5503Flutter();
+    final Nf5503NfcStatus status = await plugin.nfc.getStatus();
+
+    expect(status.supported, isA<bool>());
+    expect(status.enabled, isA<bool>());
+    expect(status.readerModeActive, isA<bool>());
+  });
 }

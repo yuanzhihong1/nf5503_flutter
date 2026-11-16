@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'nf5503_flutter_method_channel.dart';
+import 'src/nf5503_nfc_types.dart';
 import 'src/nf5503_types.dart';
 
 /// NF5503 插件的平台接口，供各平台实现 MethodChannel 或其它通信方式。
@@ -629,5 +630,222 @@ abstract class Nf5503FlutterPlatform extends PlatformInterface {
   /// 查询指定类型的打印机状态。
   Future<int> printerGetState(Nf5503PrinterStateType stateType) {
     throw UnimplementedError('printerGetState() has not been implemented.');
+  }
+
+  /// 监听 NFC 标签和适配器状态事件。
+  Stream<Nf5503NfcEvent> nfcEvents() {
+    throw UnimplementedError('nfcEvents() has not been implemented.');
+  }
+
+  /// 查询设备是否具备 NFC 硬件。
+  Future<bool> nfcIsSupported() {
+    throw UnimplementedError('nfcIsSupported() has not been implemented.');
+  }
+
+  /// 查询 NFC 是否启用。
+  Future<bool> nfcIsEnabled() {
+    throw UnimplementedError('nfcIsEnabled() has not been implemented.');
+  }
+
+  /// 查询 NFC 完整状态。
+  Future<Nf5503NfcStatus> nfcGetStatus() {
+    throw UnimplementedError('nfcGetStatus() has not been implemented.');
+  }
+
+  /// 打开系统 NFC 设置。
+  Future<void> nfcOpenSettings() {
+    throw UnimplementedError('nfcOpenSettings() has not been implemented.');
+  }
+
+  /// 启动 NFC 前台发现。
+  Future<void> nfcStartDiscovery() {
+    throw UnimplementedError('nfcStartDiscovery() has not been implemented.');
+  }
+
+  /// 停止 NFC 前台发现。
+  Future<void> nfcStopDiscovery() {
+    throw UnimplementedError('nfcStopDiscovery() has not been implemented.');
+  }
+
+  /// 获取当前标签。
+  Future<Nf5503NfcTagInfo?> nfcGetCurrentTag() {
+    throw UnimplementedError('nfcGetCurrentTag() has not been implemented.');
+  }
+
+  /// 读取当前 NDEF 消息。
+  Future<Nf5503NdefMessage?> nfcReadNdef() {
+    throw UnimplementedError('nfcReadNdef() has not been implemented.');
+  }
+
+  /// 写入 NDEF 文本记录。
+  Future<void> nfcWriteNdefText(
+    String text, {
+    required String languageCode,
+  }) {
+    throw UnimplementedError('nfcWriteNdefText() has not been implemented.');
+  }
+
+  /// 写入 NDEF URI 记录。
+  Future<void> nfcWriteNdefUri(String uri) {
+    throw UnimplementedError('nfcWriteNdefUri() has not been implemented.');
+  }
+
+  /// 写入 NDEF MIME 记录。
+  Future<void> nfcWriteNdefMime(String mimeType, Uint8List data) {
+    throw UnimplementedError('nfcWriteNdefMime() has not been implemented.');
+  }
+
+  /// 写入完整 NDEF 消息。
+  Future<void> nfcWriteNdefMessage(
+    Uint8List message, {
+    required bool formatIfNeeded,
+  }) {
+    throw UnimplementedError(
+      'nfcWriteNdefMessage() has not been implemented.',
+    );
+  }
+
+  /// 将 NDEF 标签设为只读。
+  Future<void> nfcMakeNdefReadOnly() {
+    throw UnimplementedError('nfcMakeNdefReadOnly() has not been implemented.');
+  }
+
+  /// 获取当前标签的 Mifare Classic 信息。
+  Future<Nf5503MifareClassicInfo?> nfcGetMifareClassicInfo() {
+    throw UnimplementedError(
+      'nfcGetMifareClassicInfo() has not been implemented.',
+    );
+  }
+
+  /// 连接 Mifare Classic。
+  Future<void> nfcMifareConnect() {
+    throw UnimplementedError('nfcMifareConnect() has not been implemented.');
+  }
+
+  /// 断开 Mifare Classic。
+  Future<void> nfcMifareClose() {
+    throw UnimplementedError('nfcMifareClose() has not been implemented.');
+  }
+
+  /// 查询 Mifare Classic 连接状态。
+  Future<bool> nfcMifareIsConnected() {
+    throw UnimplementedError(
+      'nfcMifareIsConnected() has not been implemented.',
+    );
+  }
+
+  /// 设置 Mifare Classic 超时。
+  Future<void> nfcMifareSetTimeout(int milliseconds) {
+    throw UnimplementedError(
+      'nfcMifareSetTimeout() has not been implemented.',
+    );
+  }
+
+  /// 鉴权 Mifare Classic 扇区。
+  Future<bool> nfcMifareAuthenticate({
+    required int sectorIndex,
+    required Uint8List key,
+    required Nf5503MifareKeyType keyType,
+  }) {
+    throw UnimplementedError(
+      'nfcMifareAuthenticate() has not been implemented.',
+    );
+  }
+
+  /// 读取 Mifare Classic 块。
+  Future<Uint8List> nfcMifareReadBlock(int blockIndex) {
+    throw UnimplementedError(
+      'nfcMifareReadBlock() has not been implemented.',
+    );
+  }
+
+  /// 写入 Mifare Classic 块。
+  Future<void> nfcMifareWriteBlock(int blockIndex, Uint8List data) {
+    throw UnimplementedError(
+      'nfcMifareWriteBlock() has not been implemented.',
+    );
+  }
+
+  /// Mifare Classic transceive。
+  Future<Uint8List> nfcMifareTransceive(Uint8List data) {
+    throw UnimplementedError(
+      'nfcMifareTransceive() has not been implemented.',
+    );
+  }
+
+  /// Mifare Classic 值块递增。
+  Future<void> nfcMifareIncrement(int blockIndex, int value) {
+    throw UnimplementedError(
+      'nfcMifareIncrement() has not been implemented.',
+    );
+  }
+
+  /// Mifare Classic 值块递减。
+  Future<void> nfcMifareDecrement(int blockIndex, int value) {
+    throw UnimplementedError(
+      'nfcMifareDecrement() has not been implemented.',
+    );
+  }
+
+  /// Mifare Classic 值块恢复。
+  Future<void> nfcMifareRestore(int blockIndex) {
+    throw UnimplementedError('nfcMifareRestore() has not been implemented.');
+  }
+
+  /// Mifare Classic 临时块转移。
+  Future<void> nfcMifareTransfer(int blockIndex) {
+    throw UnimplementedError('nfcMifareTransfer() has not been implemented.');
+  }
+
+  /// 获取块所属扇区。
+  Future<int> nfcMifareBlockToSector(int blockIndex) {
+    throw UnimplementedError(
+      'nfcMifareBlockToSector() has not been implemented.',
+    );
+  }
+
+  /// 获取扇区首块。
+  Future<int> nfcMifareSectorToBlock(int sectorIndex) {
+    throw UnimplementedError(
+      'nfcMifareSectorToBlock() has not been implemented.',
+    );
+  }
+
+  /// 获取扇区块数量。
+  Future<int> nfcMifareBlockCountInSector(int sectorIndex) {
+    throw UnimplementedError(
+      'nfcMifareBlockCountInSector() has not been implemented.',
+    );
+  }
+
+  /// 获取 Mifare 总块数。
+  Future<int> nfcMifareBlockCount() {
+    throw UnimplementedError(
+      'nfcMifareBlockCount() has not been implemented.',
+    );
+  }
+
+  /// 获取 Mifare 扇区数。
+  Future<int> nfcMifareSectorCount() {
+    throw UnimplementedError(
+      'nfcMifareSectorCount() has not been implemented.',
+    );
+  }
+
+  /// 获取 Mifare 容量。
+  Future<int> nfcMifareSize() {
+    throw UnimplementedError('nfcMifareSize() has not been implemented.');
+  }
+
+  /// 获取 Mifare 兼容类型。
+  Future<Nf5503MifareClassicType> nfcMifareType() {
+    throw UnimplementedError('nfcMifareType() has not been implemented.');
+  }
+
+  /// 获取 Mifare transceive 最大长度。
+  Future<int> nfcMifareMaxTransceiveLength() {
+    throw UnimplementedError(
+      'nfcMifareMaxTransceiveLength() has not been implemented.',
+    );
   }
 }

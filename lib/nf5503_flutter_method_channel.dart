@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'nf5503_flutter_platform_interface.dart';
+import 'src/nf5503_nfc_types.dart';
 import 'src/nf5503_types.dart';
 
 /// An implementation of [Nf5503FlutterPlatform] that uses method channels.
@@ -15,6 +16,9 @@ class MethodChannelNf5503Flutter extends Nf5503FlutterPlatform {
 
   @visibleForTesting
   final printerEventChannel = const EventChannel('nf5503_flutter/printer');
+
+  @visibleForTesting
+  final nfcEventChannel = const EventChannel('nf5503_flutter/nfc');
 
   @override
   Future<String?> getPlatformVersion() async {
@@ -613,6 +617,222 @@ class MethodChannelNf5503Flutter extends Nf5503FlutterPlatform {
     });
   }
 
+  @override
+  Stream<Nf5503NfcEvent> nfcEvents() {
+    return nfcEventChannel
+        .receiveBroadcastStream()
+        .map((event) => Nf5503NfcEvent.fromMap(_eventMap(event)));
+  }
+
+  @override
+  Future<bool> nfcIsSupported() => _invokeBool('nfc.isSupported');
+
+  @override
+  Future<bool> nfcIsEnabled() => _invokeBool('nfc.isEnabled');
+
+  @override
+  Future<Nf5503NfcStatus> nfcGetStatus() async {
+    final value = await methodChannel.invokeMethod<Object?>('nfc.getStatus');
+    return Nf5503NfcStatus.fromMap(_eventMap(value));
+  }
+
+  @override
+  Future<void> nfcOpenSettings() => _invokeVoid('nfc.openSettings');
+
+  @override
+  Future<void> nfcStartDiscovery() => _invokeVoid('nfc.startDiscovery');
+
+  @override
+  Future<void> nfcStopDiscovery() => _invokeVoid('nfc.stopDiscovery');
+
+  @override
+  Future<Nf5503NfcTagInfo?> nfcGetCurrentTag() async {
+    final value =
+        await methodChannel.invokeMethod<Object?>('nfc.getCurrentTag');
+    final map = _nullableMap(value);
+    return map == null ? null : Nf5503NfcTagInfo.fromMap(map);
+  }
+
+  @override
+  Future<Nf5503NdefMessage?> nfcReadNdef() async {
+    final value = await methodChannel.invokeMethod<Object?>('nfc.readNdef');
+    final map = _nullableMap(value);
+    return map == null ? null : Nf5503NdefMessage.fromMap(map);
+  }
+
+  @override
+  Future<void> nfcWriteNdefText(
+    String text, {
+    required String languageCode,
+  }) {
+    return _invokeVoid('nfc.writeNdefText', <String, Object?>{
+      'text': text,
+      'languageCode': languageCode,
+    });
+  }
+
+  @override
+  Future<void> nfcWriteNdefUri(String uri) {
+    return _invokeVoid('nfc.writeNdefUri', <String, Object?>{'uri': uri});
+  }
+
+  @override
+  Future<void> nfcWriteNdefMime(String mimeType, Uint8List data) {
+    return _invokeVoid('nfc.writeNdefMime', <String, Object?>{
+      'mimeType': mimeType,
+      'data': data,
+    });
+  }
+
+  @override
+  Future<void> nfcWriteNdefMessage(
+    Uint8List message, {
+    required bool formatIfNeeded,
+  }) {
+    return _invokeVoid('nfc.writeNdefMessage', <String, Object?>{
+      'message': message,
+      'formatIfNeeded': formatIfNeeded,
+    });
+  }
+
+  @override
+  Future<void> nfcMakeNdefReadOnly() {
+    return _invokeVoid('nfc.makeNdefReadOnly');
+  }
+
+  @override
+  Future<Nf5503MifareClassicInfo?> nfcGetMifareClassicInfo() async {
+    final value = await methodChannel.invokeMethod<Object?>(
+      'nfc.mifare.getInfo',
+    );
+    final map = _nullableMap(value);
+    return map == null ? null : Nf5503MifareClassicInfo.fromMap(map);
+  }
+
+  @override
+  Future<void> nfcMifareConnect() => _invokeVoid('nfc.mifare.connect');
+
+  @override
+  Future<void> nfcMifareClose() => _invokeVoid('nfc.mifare.close');
+
+  @override
+  Future<bool> nfcMifareIsConnected() {
+    return _invokeBool('nfc.mifare.isConnected');
+  }
+
+  @override
+  Future<void> nfcMifareSetTimeout(int milliseconds) {
+    return _invokeVoid('nfc.mifare.setTimeout', <String, Object?>{
+      'milliseconds': milliseconds,
+    });
+  }
+
+  @override
+  Future<bool> nfcMifareAuthenticate({
+    required int sectorIndex,
+    required Uint8List key,
+    required Nf5503MifareKeyType keyType,
+  }) {
+    return _invokeBool('nfc.mifare.authenticate', <String, Object?>{
+      'sectorIndex': sectorIndex,
+      'key': key,
+      'keyType': keyType.value,
+    });
+  }
+
+  @override
+  Future<Uint8List> nfcMifareReadBlock(int blockIndex) {
+    return _invokeBytes('nfc.mifare.readBlock', <String, Object?>{
+      'blockIndex': blockIndex,
+    });
+  }
+
+  @override
+  Future<void> nfcMifareWriteBlock(int blockIndex, Uint8List data) {
+    return _invokeVoid('nfc.mifare.writeBlock', <String, Object?>{
+      'blockIndex': blockIndex,
+      'data': data,
+    });
+  }
+
+  @override
+  Future<Uint8List> nfcMifareTransceive(Uint8List data) {
+    return _invokeBytes(
+        'nfc.mifare.transceive', <String, Object?>{'data': data});
+  }
+
+  @override
+  Future<void> nfcMifareIncrement(int blockIndex, int value) {
+    return _invokeVoid('nfc.mifare.increment', <String, Object?>{
+      'blockIndex': blockIndex,
+      'value': value,
+    });
+  }
+
+  @override
+  Future<void> nfcMifareDecrement(int blockIndex, int value) {
+    return _invokeVoid('nfc.mifare.decrement', <String, Object?>{
+      'blockIndex': blockIndex,
+      'value': value,
+    });
+  }
+
+  @override
+  Future<void> nfcMifareRestore(int blockIndex) {
+    return _invokeVoid('nfc.mifare.restore', <String, Object?>{
+      'blockIndex': blockIndex,
+    });
+  }
+
+  @override
+  Future<void> nfcMifareTransfer(int blockIndex) {
+    return _invokeVoid('nfc.mifare.transfer', <String, Object?>{
+      'blockIndex': blockIndex,
+    });
+  }
+
+  @override
+  Future<int> nfcMifareBlockToSector(int blockIndex) {
+    return _invokeInt('nfc.mifare.blockToSector', <String, Object?>{
+      'blockIndex': blockIndex,
+    });
+  }
+
+  @override
+  Future<int> nfcMifareSectorToBlock(int sectorIndex) {
+    return _invokeInt('nfc.mifare.sectorToBlock', <String, Object?>{
+      'sectorIndex': sectorIndex,
+    });
+  }
+
+  @override
+  Future<int> nfcMifareBlockCountInSector(int sectorIndex) {
+    return _invokeInt('nfc.mifare.blockCountInSector', <String, Object?>{
+      'sectorIndex': sectorIndex,
+    });
+  }
+
+  @override
+  Future<int> nfcMifareBlockCount() => _invokeInt('nfc.mifare.blockCount');
+
+  @override
+  Future<int> nfcMifareSectorCount() => _invokeInt('nfc.mifare.sectorCount');
+
+  @override
+  Future<int> nfcMifareSize() => _invokeInt('nfc.mifare.size');
+
+  @override
+  Future<Nf5503MifareClassicType> nfcMifareType() async {
+    return Nf5503MifareClassicType.fromValue(
+      await _invokeInt('nfc.mifare.type'),
+    );
+  }
+
+  @override
+  Future<int> nfcMifareMaxTransceiveLength() {
+    return _invokeInt('nfc.mifare.maxTransceiveLength');
+  }
+
   Future<void> _invokeVoid(String method, [Map<String, Object?>? arguments]) {
     return methodChannel.invokeMethod<void>(method, arguments);
   }
@@ -650,6 +870,54 @@ class MethodChannelNf5503Flutter extends Nf5503FlutterPlatform {
   ]) async {
     return await methodChannel.invokeMethod<String>(method, arguments) ?? '';
   }
+
+  Future<Uint8List> _invokeBytes(
+    String method, [
+    Map<String, Object?>? arguments,
+  ]) async {
+    final value = await methodChannel.invokeMethod<Object?>(method, arguments);
+    final bytes = _bytesFromObject(value);
+    if (bytes == null) {
+      throw PlatformException(
+        code: 'NF5503_NFC_INVALID_RESULT',
+        message: '$method did not return a byte array.',
+      );
+    }
+    return bytes;
+  }
+}
+
+Map<Object?, Object?>? _nullableMap(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is Map<Object?, Object?>) {
+    return value;
+  }
+  if (value is Map) {
+    return value.cast<Object?, Object?>();
+  }
+  return null;
+}
+
+Uint8List? _bytesFromObject(Object? value) {
+  if (value is Uint8List) {
+    return value;
+  }
+  if (value is ByteData) {
+    return value.buffer.asUint8List(value.offsetInBytes, value.lengthInBytes);
+  }
+  if (value is List) {
+    final result = <int>[];
+    for (final item in value) {
+      if (item is! num) {
+        return null;
+      }
+      result.add(item.toInt());
+    }
+    return Uint8List.fromList(result);
+  }
+  return null;
 }
 
 Map<Object?, Object?> _eventMap(Object? event) {

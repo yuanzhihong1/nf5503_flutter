@@ -34,5 +34,6 @@ void main() {
 
     expect(nf5503FlutterPlugin.scanner, isA<Nf5503Scanner>());
     expect(nf5503FlutterPlugin.printer, isA<Nf5503Printer>());
+    expect(nf5503FlutterPlugin.nfc, isA<Nf5503Nfc>());
   });
 }

@@ -22,6 +22,13 @@ void main() {
         'scanner.getDecodeMode' => 4,
         'scanner.getScannerType' => 33,
         'scanner.getSymbologyValues' => <int>[7],
+        'nfc.getStatus' => <String, Object?>{
+            'supported': true,
+            'enabled': true,
+            'readerModeActive': true,
+            'adapterState': 3,
+          },
+        'nfc.mifare.readBlock' => Uint8List.fromList(<int>[1, 2, 3]),
         'scanner.getSymbologyList' => <Map<String, Object?>>[
             <String, Object?>{'id': 1, 'name': 'CODE128'},
           ],
@@ -149,6 +156,49 @@ void main() {
     expect(methodCalls.single.method, 'printer.setFontType');
     expect(methodCalls.single.arguments, <String, Object?>{
       'fontType': 'default',
+    });
+  });
+
+  test('nfcGetStatus maps native reader mode state', () async {
+    final status = await platform.nfcGetStatus();
+
+    expect(methodCalls.single.method, 'nfc.getStatus');
+    expect(status.supported, isTrue);
+    expect(status.enabled, isTrue);
+    expect(status.readerModeActive, isTrue);
+    expect(status.adapterState, Nf5503NfcAdapterState.on);
+  });
+
+  test('nfcWriteNdefText passes text and language code', () async {
+    await platform.nfcWriteNdefText('hello', languageCode: 'zh-CN');
+
+    expect(methodCalls.single.method, 'nfc.writeNdefText');
+    expect(methodCalls.single.arguments, <String, Object?>{
+      'text': 'hello',
+      'languageCode': 'zh-CN',
+    });
+  });
+
+  test('nfcMifareAuthenticate uses official key type value', () async {
+    await platform.nfcMifareAuthenticate(
+      sectorIndex: 2,
+      key: Uint8List.fromList(<int>[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]),
+      keyType: Nf5503MifareKeyType.keyB,
+    );
+
+    expect(methodCalls.single.method, 'nfc.mifare.authenticate');
+    expect(methodCalls.single.arguments, <String, Object?>{
+      'sectorIndex': 2,
+      'key': <int>[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+      'keyType': 1,
+    });
+  });
+
+  test('nfcMifareReadBlock returns native bytes', () async {
+    expect(await platform.nfcMifareReadBlock(4), <int>[1, 2, 3]);
+    expect(methodCalls.single.method, 'nfc.mifare.readBlock');
+    expect(methodCalls.single.arguments, <String, Object?>{
+      'blockIndex': 4,
     });
   });
 

@@ -1,6 +1,7 @@
 package com.m5stack.nf5503_flutter
 
 import android.bld.PrintManager
+import android.app.Activity
 import android.bld.ScanManager
 import android.bld.scan.configuration.ScanConfig
 import android.bld.print.aidl.PrinterBinderListener
@@ -16,6 +17,8 @@ import android.os.HandlerThread
 import android.os.Looper
 import com.example.lc_print_sdk.PrintUtil
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -30,11 +33,14 @@ import java.util.concurrent.RejectedExecutionException
 /** Flutter plugin bridge for the NF5503 scanner and printer SDKs. */
 class Nf5503FlutterPlugin :
     FlutterPlugin,
+    ActivityAware,
     MethodChannel.MethodCallHandler {
     private lateinit var appContext: Context
     private lateinit var methodChannel: MethodChannel
     private lateinit var scannerEventChannel: EventChannel
     private lateinit var printerEventChannel: EventChannel
+    private lateinit var nfcEventChannel: EventChannel
+    private var nfcController: Nf5503NfcController? = null
 
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
     // Vendor scanner/printer calls are serialized off the Android main thread.
@@ -77,6 +83,7 @@ class Nf5503FlutterPlugin :
         }
         scanHandlerThread = HandlerThread("nf5503-scan-broadcast").also { it.start() }
         scanHandler = Handler(scanHandlerThread.looper)
+        nfcController = Nf5503NfcController(appContext, apiExecutor).also { it.attach() }
 
         val messenger = flutterPluginBinding.binaryMessenger
         val taskQueue = messenger.makeBackgroundTaskQueue()
@@ -98,10 +105,17 @@ class Nf5503FlutterPlugin :
             StandardMethodCodec.INSTANCE,
             taskQueue,
         )
+        nfcEventChannel = EventChannel(
+            messenger,
+            "nf5503_flutter/nfc",
+            StandardMethodCodec.INSTANCE,
+            taskQueue,
+        )
 
         methodChannel.setMethodCallHandler(this)
         scannerEventChannel.setStreamHandler(scannerStreamHandler)
         printerEventChannel.setStreamHandler(printerStreamHandler)
+        nfcEventChannel.setStreamHandler(nfcController)
     }
 
     override fun onMethodCall(
@@ -118,6 +132,9 @@ class Nf5503FlutterPlugin :
         result: MethodChannel.Result,
     ) {
         try {
+            if (nfcController?.handleMethodCall(call, result) == true) {
+                return
+            }
             when (call.method) {
                 "getPlatformVersion" -> result.success("Android ${Build.VERSION.RELEASE}")
 
@@ -408,6 +425,9 @@ class Nf5503FlutterPlugin :
         methodChannel.setMethodCallHandler(null)
         scannerEventChannel.setStreamHandler(null)
         printerEventChannel.setStreamHandler(null)
+        nfcEventChannel.setStreamHandler(null)
+        nfcController?.dispose()
+        nfcController = null
         scannerEvents = null
         printerEvents = null
         mainHandler.removeCallbacksAndMessages(null)
@@ -422,6 +442,22 @@ class Nf5503FlutterPlugin :
         if (::scanHandlerThread.isInitialized) {
             scanHandlerThread.quitSafely()
         }
+    }
+
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        nfcController?.attachActivity(binding.activity)
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        nfcController?.detachActivity()
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        nfcController?.attachActivity(binding.activity)
+    }
+
+    override fun onDetachedFromActivity() {
+        nfcController?.detachActivity()
     }
 
     private fun runApiAsync(

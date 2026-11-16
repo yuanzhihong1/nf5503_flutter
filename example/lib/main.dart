@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui' as ui;
 
 import 'package:cupertino_ui/cupertino_ui.dart';
@@ -65,6 +66,14 @@ class _MyAppState extends State<MyApp> {
 
   StreamSubscription<Nf5503ScanResult>? _scanSubscription;
   StreamSubscription<Nf5503PrintEvent>? _printSubscription;
+  StreamSubscription<Nf5503NfcEvent>? _nfcSubscription;
+
+  final _nfcTextController = TextEditingController(text: 'Hello NF5503 NFC');
+  final _nfcUriController = TextEditingController(text: 'https://m5stack.com');
+  final _nfcBlockController = TextEditingController(text: '4');
+  final _nfcKeyController = TextEditingController(text: 'FFFFFFFFFFFF');
+  final _nfcContentController = TextEditingController(text: 'NF5503');
+  final _nfcNewKeyController = TextEditingController(text: 'FFFFFFFFFFFF');
 
   String _platformVersion = 'Unknown';
   String _scannerMode = '-';
@@ -81,6 +90,11 @@ class _MyAppState extends State<MyApp> {
   bool? _decoderConnected;
   int? _lightsMode;
   int? _symbologyCount;
+  Nf5503NfcStatus? _nfcStatus;
+  Nf5503NfcTagInfo? _nfcTag;
+  Nf5503NdefMessage? _nfcNdef;
+  Nf5503MifareKeyType _nfcKeyType = Nf5503MifareKeyType.keyA;
+  String _nfcLastEvent = '尚未启动 NFC 监听';
   bool _printServiceEnabled = false;
   bool _blackMarkThresholdEnabled = true;
   _PrintPaperType _printPaperType = _PrintPaperType.receipt;
@@ -98,9 +112,16 @@ class _MyAppState extends State<MyApp> {
   void dispose() {
     _scanSubscription?.cancel();
     _printSubscription?.cancel();
+    _nfcSubscription?.cancel();
     _scanActionController.dispose();
     _scanKeyController.dispose();
     _blackMarkThresholdController.dispose();
+    _nfcTextController.dispose();
+    _nfcUriController.dispose();
+    _nfcBlockController.dispose();
+    _nfcKeyController.dispose();
+    _nfcContentController.dispose();
+    _nfcNewKeyController.dispose();
     super.dispose();
   }
 
@@ -319,6 +340,195 @@ class _MyAppState extends State<MyApp> {
     final success = await _plugin.scanner.close();
     setState(() => _scannerOpen = false);
     _log('closeScanner 返回: $success');
+  }
+
+  Future<void> _refreshNfcStatus() async {
+    final status = await _plugin.nfc.getStatus();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _nfcStatus = status);
+    _log(
+      'NFC 状态: supported=${status.supported}, enabled=${status.enabled}, '
+      'reader=${status.readerModeActive}, adapter=${status.adapterState.name}',
+    );
+  }
+
+  Future<void> _toggleNfcListening() async {
+    if (_nfcSubscription != null) {
+      await _nfcSubscription?.cancel();
+      _nfcSubscription = null;
+      await _plugin.nfc.stopDiscovery();
+      await _refreshNfcStatus();
+      if (mounted) {
+        setState(() => _nfcLastEvent = 'NFC 监听已停止');
+      }
+      _log('NFC 监听已停止');
+      return;
+    }
+
+    await _refreshNfcStatus();
+    final status = _nfcStatus;
+    if (status == null || !status.supported) {
+      throw StateError('当前设备不支持 NFC');
+    }
+    if (!status.enabled) {
+      await _plugin.nfc.openSettings();
+      throw StateError('NFC 尚未开启，请在系统设置中启用后重试');
+    }
+
+    _nfcSubscription = _plugin.nfc.events().listen(
+      _handleNfcEvent,
+      onError: (Object error) => _log('NFC 事件错误: $error'),
+    );
+    await _plugin.nfc.startDiscovery();
+    await _refreshNfcStatus();
+    if (mounted) {
+      setState(() => _nfcLastEvent = 'NFC 监听已启动，请靠近标签');
+    }
+    _log('NFC 监听已启动');
+  }
+
+  void _handleNfcEvent(Nf5503NfcEvent event) {
+    if (!mounted) {
+      return;
+    }
+    switch (event.type) {
+      case Nf5503NfcEventType.tag:
+        final tag = event.tag;
+        setState(() {
+          _nfcTag = tag;
+          _nfcNdef = tag?.ndef?.cachedMessage;
+          _nfcLastEvent =
+              '发现标签 ${tag?.idHex ?? '-'}，tech=${tag?.techList.length ?? 0}';
+        });
+        _log(
+          'NFC 标签: id=${tag?.idHex}, reversed=${tag?.reversedDecimalId}, '
+          'ndef=${tag?.ndef != null}, mifare=${tag?.mifareClassic != null}, '
+          'formattable=${tag?.ndefFormatable}',
+        );
+      case Nf5503NfcEventType.tagLost:
+        setState(() {
+          _nfcTag = null;
+          _nfcLastEvent = '标签已离开或发现流程已切换';
+        });
+        _log('NFC 标签离开');
+      case Nf5503NfcEventType.adapterState:
+        if (event.status != null) {
+          setState(() => _nfcStatus = event.status);
+        }
+        setState(() {
+          _nfcLastEvent = 'NFC 状态: ${event.adapterState?.name ?? '-'}';
+        });
+        _log('NFC 适配器状态: ${event.adapterState?.name ?? '-'}');
+      case Nf5503NfcEventType.error:
+        setState(() => _nfcLastEvent = event.message ?? 'NFC 错误');
+        _log('NFC 错误: ${event.message ?? '-'}');
+      case Nf5503NfcEventType.unknown:
+        setState(() => _nfcLastEvent = '未知 NFC 事件');
+    }
+  }
+
+  Future<void> _openNfcSettings() async {
+    await _plugin.nfc.openSettings();
+    _log('已打开 NFC 系统设置');
+  }
+
+  Future<void> _readNdef() async {
+    final message = await _plugin.nfc.readNdef();
+    if (mounted) {
+      setState(() => _nfcNdef = message);
+    }
+    if (message == null) {
+      _log('当前标签没有 NDEF 消息');
+      return;
+    }
+    _log(
+      'NDEF: text=${message.firstText ?? '-'}, '
+      'records=${message.records.length}, bytes=${message.rawData.length}',
+    );
+  }
+
+  Future<void> _writeNdefText() async {
+    await _plugin.nfc.writeNdefText(_nfcTextController.text);
+    _log('NDEF 文本写入完成: ${_nfcTextController.text}');
+    await _readNdef();
+  }
+
+  Future<void> _writeNdefUri() async {
+    await _plugin.nfc.writeNdefUri(_nfcUriController.text.trim());
+    _log('NDEF URI 写入完成: ${_nfcUriController.text.trim()}');
+    await _readNdef();
+  }
+
+  Future<void> _readMifareBlock() async {
+    final block = int.parse(_nfcBlockController.text.trim());
+    final key = _parseHexBytes(_nfcKeyController.text, expectedLength: 6);
+    final data = await _plugin.nfc.readMifareBlockWithKey(
+      blockIndex: block,
+      key: key,
+      keyType: _nfcKeyType,
+    );
+    _log('Mifare 块 $block: ${_toHex(data)}');
+  }
+
+  Future<void> _writeMifareBlock() async {
+    final block = int.parse(_nfcBlockController.text.trim());
+    final key = _parseHexBytes(_nfcKeyController.text, expectedLength: 6);
+    final content = Uint8List.fromList(utf8.encode(_nfcContentController.text));
+    await _plugin.nfc.writeMifareBlockWithKey(
+      blockIndex: block,
+      data: content,
+      key: key,
+      keyType: _nfcKeyType,
+    );
+    _log('Mifare 块 $block 写入完成');
+    await _readMifareBlock();
+  }
+
+  Future<void> _changeMifareKey() async {
+    final block = int.parse(_nfcBlockController.text.trim());
+    final info = await _plugin.nfc.getMifareClassicInfo();
+    if (info == null) {
+      throw StateError('当前标签不是 Mifare Classic');
+    }
+    // changeMifareSectorKey 需要扇区号；通过 Android 的块映射接口换算。
+    final sectorIndex = await _plugin.nfc.mifareBlockToSector(block);
+    final currentKey = _parseHexBytes(
+      _nfcKeyController.text,
+      expectedLength: 6,
+    );
+    final newKey = _parseHexBytes(_nfcNewKeyController.text, expectedLength: 6);
+    await _plugin.nfc.changeMifareSectorKey(
+      sectorIndex: sectorIndex,
+      currentKey: currentKey,
+      newKey: newKey,
+      keyType: _nfcKeyType,
+    );
+    _log('Mifare 扇区 $sectorIndex 的 ${_nfcKeyType.name} 修改完成');
+  }
+
+  Uint8List _parseHexBytes(String value, {int? expectedLength}) {
+    final normalized = value.replaceAll(RegExp(r'[\s:\-]'), '').toUpperCase();
+    if (normalized.isEmpty ||
+        normalized.length.isOdd ||
+        !RegExp(r'^[0-9A-F]+$').hasMatch(normalized)) {
+      throw FormatException('无效十六进制数据: $value');
+    }
+    if (expectedLength != null && normalized.length != expectedLength * 2) {
+      throw FormatException('需要 $expectedLength 字节: $value');
+    }
+    return Uint8List.fromList(<int>[
+      for (var index = 0; index < normalized.length; index += 2)
+        int.parse(normalized.substring(index, index + 2), radix: 16),
+    ]);
+  }
+
+  String _toHex(Uint8List bytes) {
+    return bytes
+        .map((value) => value.toRadixString(16).padLeft(2, '0'))
+        .join()
+        .toUpperCase();
   }
 
   Future<void> _listenPrinterEvents() async {
@@ -756,6 +966,8 @@ class _MyAppState extends State<MyApp> {
                       const SizedBox(height: 16),
                       _scannerCard(),
                       const SizedBox(height: 14),
+                      _nfcCard(),
+                      const SizedBox(height: 14),
                       _printerCard(),
                       const SizedBox(height: 14),
                       _LogCard(
@@ -913,6 +1125,213 @@ class _MyAppState extends State<MyApp> {
               icon: CupertinoIcons.power,
               tone: _ActionTone.plain,
               onPressed: _busy ? null : () => _run('关闭扫码', _closeScanner),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _nfcCard() {
+    final status = _nfcStatus;
+    final tag = _nfcTag;
+    final ndef = _nfcNdef ?? tag?.ndef?.cachedMessage;
+    final mifare = tag?.mifareClassic;
+    return _SectionCard(
+      icon: CupertinoIcons.antenna_radiowaves_left_right,
+      title: 'NFC 测试',
+      subtitle: '前台 Reader Mode 监听标签，支持 NDEF 文本/URI 与 Mifare Classic 块操作。',
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _InfoTile(
+                label: '硬件/开关',
+                value: status == null
+                    ? '-'
+                    : '${status.supported ? 'Supported' : 'Unsupported'} / '
+                          '${status.enabled ? 'On' : 'Off'}',
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _InfoTile(
+                label: 'Reader Mode',
+                value: status?.readerModeActive == true ? 'Active' : 'Stopped',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _InfoTile(label: '标签 UID', value: tag?.idHex ?? '-'),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _InfoTile(
+                label: 'NDEF/Mifare',
+                value:
+                    '${ndef != null ? 'NDEF' : '-'} / '
+                    '${mifare != null ? 'Mifare' : '-'}',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _InfoTile(label: '最近事件', value: _nfcLastEvent),
+        if (ndef != null) ...[
+          const SizedBox(height: 10),
+          _InfoTile(
+            label: 'NDEF 内容',
+            value: ndef.firstText ?? '${ndef.records.length} records',
+          ),
+        ],
+        const SizedBox(height: 12),
+        _CupertinoField(
+          label: 'NDEF 文本',
+          controller: _nfcTextController,
+          enabled: !_busy,
+        ),
+        const SizedBox(height: 10),
+        _CupertinoField(
+          label: 'NDEF URI',
+          controller: _nfcUriController,
+          enabled: !_busy,
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _CupertinoField(
+                label: 'Mifare 块',
+                controller: _nfcBlockController,
+                enabled: !_busy,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _CupertinoField(
+                label: 'Key HEX',
+                controller: _nfcKeyController,
+                enabled: !_busy,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _CupertinoField(
+                label: '块内容',
+                controller: _nfcContentController,
+                enabled: !_busy,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _CupertinoField(
+                label: '新 Key HEX',
+                controller: _nfcNewKeyController,
+                enabled: !_busy,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        CupertinoSlidingSegmentedControl<Nf5503MifareKeyType>(
+          groupValue: _nfcKeyType,
+          children: const <Nf5503MifareKeyType, Widget>{
+            Nf5503MifareKeyType.keyA: Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Text('Key A'),
+            ),
+            Nf5503MifareKeyType.keyB: Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Text('Key B'),
+            ),
+          },
+          onValueChanged: (value) {
+            if (!_busy && value != null) {
+              setState(() => _nfcKeyType = value);
+            }
+          },
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _ActionButton(
+              label: _nfcSubscription == null ? '启动 NFC' : '停止 NFC',
+              icon: _nfcSubscription == null
+                  ? CupertinoIcons.radiowaves_left
+                  : CupertinoIcons.stop_fill,
+              tone: _ActionTone.filled,
+              onPressed: _busy
+                  ? null
+                  : () => _run('切换 NFC 监听', _toggleNfcListening),
+            ),
+            _ActionButton(
+              label: 'NFC 状态',
+              icon: CupertinoIcons.info_circle,
+              tone: _ActionTone.plain,
+              onPressed: _busy
+                  ? null
+                  : () => _run('读取 NFC 状态', _refreshNfcStatus),
+            ),
+            _ActionButton(
+              label: '系统设置',
+              icon: CupertinoIcons.settings,
+              tone: _ActionTone.plain,
+              onPressed: _busy
+                  ? null
+                  : () => _run('打开 NFC 设置', _openNfcSettings),
+            ),
+            _ActionButton(
+              label: '读 NDEF',
+              icon: CupertinoIcons.doc_text,
+              onPressed: _busy ? null : () => _run('读取 NDEF', _readNdef),
+            ),
+            _ActionButton(
+              label: '写文本',
+              icon: CupertinoIcons.textformat,
+              onPressed: _busy
+                  ? null
+                  : () => _run('写入 NDEF 文本', _writeNdefText),
+            ),
+            _ActionButton(
+              label: '写 URI',
+              icon: CupertinoIcons.link,
+              onPressed: _busy
+                  ? null
+                  : () => _run('写入 NDEF URI', _writeNdefUri),
+            ),
+            _ActionButton(
+              label: '读 Mifare 块',
+              icon: CupertinoIcons.square_arrow_down,
+              tone: _ActionTone.tinted,
+              onPressed: _busy
+                  ? null
+                  : () => _run('读取 Mifare 块', _readMifareBlock),
+            ),
+            _ActionButton(
+              label: '写 Mifare 块',
+              icon: CupertinoIcons.square_arrow_up,
+              tone: _ActionTone.tinted,
+              onPressed: _busy
+                  ? null
+                  : () => _run('写入 Mifare 块', _writeMifareBlock),
+            ),
+            _ActionButton(
+              label: '修改 Key',
+              icon: CupertinoIcons.lock_rotation,
+              tone: _ActionTone.plain,
+              onPressed: _busy
+                  ? null
+                  : () => _run('修改 Mifare 扇区 Key', _changeMifareKey),
             ),
           ],
         ),

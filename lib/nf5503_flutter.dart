@@ -1,24 +1,33 @@
 import 'dart:typed_data';
 
 import 'nf5503_flutter_platform_interface.dart';
+import 'src/nf5503_nfc_types.dart';
 import 'src/nf5503_scan_constants.dart';
 import 'src/nf5503_types.dart';
 
+export 'src/nf5503_nfc_types.dart';
 export 'src/nf5503_scan_constants.dart';
 export 'src/nf5503_types.dart';
 
 /// NF5503 扫码与打印 Flutter 插件入口。
 class Nf5503Flutter {
   /// 创建插件入口，可注入自定义扫码或打印门面便于测试。
-  Nf5503Flutter({Nf5503Scanner? scanner, Nf5503Printer? printer})
-      : scanner = scanner ?? const Nf5503Scanner(),
-        printer = printer ?? const Nf5503Printer();
+  Nf5503Flutter({
+    Nf5503Scanner? scanner,
+    Nf5503Printer? printer,
+    Nf5503Nfc? nfc,
+  })  : scanner = scanner ?? const Nf5503Scanner(),
+        printer = printer ?? const Nf5503Printer(),
+        nfc = nfc ?? const Nf5503Nfc();
 
   /// 扫码 SDK 操作门面。
   final Nf5503Scanner scanner;
 
   /// 打印 SDK 操作门面。
   final Nf5503Printer printer;
+
+  /// Android NFC 操作门面。
+  final Nf5503Nfc nfc;
 
   /// 获取当前 Android 平台版本字符串。
   Future<String?> getPlatformVersion() {
@@ -501,5 +510,287 @@ class Nf5503Printer {
   /// 查询指定类型的打印机状态。
   Future<int> getState(Nf5503PrinterStateType stateType) {
     return _platform.printerGetState(stateType);
+  }
+}
+
+/// Android NFC 操作门面。
+///
+/// 使用 Android 前台 Reader Mode 接收标签，适用于 Flutter 页面处于前台时的
+/// NDEF 读写和 Mifare Classic 操作。
+class Nf5503Nfc {
+  /// 创建 NFC API 门面。
+  const Nf5503Nfc();
+
+  Nf5503FlutterPlatform get _platform => Nf5503FlutterPlatform.instance;
+
+  /// 监听标签发现、标签离开和 NFC 适配器状态变化。
+  ///
+  /// 第一个订阅建立时插件会自动启动 NFC Reader Mode，最后一个订阅取消时停止。
+  Stream<Nf5503NfcEvent> events() => _platform.nfcEvents();
+
+  /// 查询设备是否具备 NFC 硬件。
+  Future<bool> isSupported() => _platform.nfcIsSupported();
+
+  /// 查询 NFC 当前是否启用。
+  Future<bool> isEnabled() => _platform.nfcIsEnabled();
+
+  /// 获取 NFC 硬件、开关和 Reader Mode 的完整状态。
+  Future<Nf5503NfcStatus> getStatus() => _platform.nfcGetStatus();
+
+  /// 打开系统 NFC 设置页面。
+  Future<void> openSettings() => _platform.nfcOpenSettings();
+
+  /// 手动启动前台标签发现。
+  ///
+  /// 订阅 [events] 时会自动调用；只有需要在无事件订阅时保留当前标签才需手动调用。
+  Future<void> startDiscovery() => _platform.nfcStartDiscovery();
+
+  /// 停止前台标签发现。
+  Future<void> stopDiscovery() => _platform.nfcStopDiscovery();
+
+  /// 获取最近一次发现且尚未离开的标签。
+  Future<Nf5503NfcTagInfo?> getCurrentTag() => _platform.nfcGetCurrentTag();
+
+  /// 读取当前 NDEF 标签消息；没有 NDEF 内容时返回 null。
+  Future<Nf5503NdefMessage?> readNdef() => _platform.nfcReadNdef();
+
+  /// 向当前标签写入一条 NDEF 文本记录。
+  Future<void> writeNdefText(
+    String text, {
+    String languageCode = 'en',
+  }) {
+    return _platform.nfcWriteNdefText(text, languageCode: languageCode);
+  }
+
+  /// 向当前标签写入一条 NDEF URI 记录。
+  Future<void> writeNdefUri(String uri) => _platform.nfcWriteNdefUri(uri);
+
+  /// 向当前标签写入一条 MIME 记录。
+  Future<void> writeNdefMime(String mimeType, Uint8List data) {
+    return _platform.nfcWriteNdefMime(mimeType, data);
+  }
+
+  /// 写入完整 NDEF 消息原始字节。
+  ///
+  /// [formatIfNeeded] 为 true 时，非 NDEF 但支持格式化的标签会先被格式化。
+  Future<void> writeNdefMessage(
+    Uint8List message, {
+    bool formatIfNeeded = true,
+  }) {
+    return _platform.nfcWriteNdefMessage(
+      message,
+      formatIfNeeded: formatIfNeeded,
+    );
+  }
+
+  /// 将当前 NDEF 标签设置为只读。
+  Future<void> makeNdefReadOnly() => _platform.nfcMakeNdefReadOnly();
+
+  /// 获取当前标签的 Mifare Classic 能力；不是 Mifare Classic 时返回 null。
+  Future<Nf5503MifareClassicInfo?> getMifareClassicInfo() {
+    return _platform.nfcGetMifareClassicInfo();
+  }
+
+  /// 连接 Mifare Classic 标签。
+  Future<void> connectMifare() => _platform.nfcMifareConnect();
+
+  /// 断开 Mifare Classic 标签。
+  Future<void> closeMifare() => _platform.nfcMifareClose();
+
+  /// 查询 Mifare Classic 是否已连接。
+  Future<bool> isMifareConnected() => _platform.nfcMifareIsConnected();
+
+  /// 设置 Mifare Classic transceive 超时，单位毫秒。
+  Future<void> setMifareTimeout(int milliseconds) {
+    return _platform.nfcMifareSetTimeout(milliseconds);
+  }
+
+  /// 使用 Key A 或 Key B 鉴权指定扇区。
+  Future<bool> authenticateMifareSector({
+    required int sectorIndex,
+    required Uint8List key,
+    Nf5503MifareKeyType keyType = Nf5503MifareKeyType.keyA,
+  }) {
+    return _platform.nfcMifareAuthenticate(
+      sectorIndex: sectorIndex,
+      key: key,
+      keyType: keyType,
+    );
+  }
+
+  /// 读取已连接且已鉴权扇区中的 16 字节块。
+  Future<Uint8List> readMifareBlock(int blockIndex) {
+    return _platform.nfcMifareReadBlock(blockIndex);
+  }
+
+  /// 写入已连接且已鉴权扇区中的 16 字节块。
+  Future<void> writeMifareBlock(int blockIndex, Uint8List data) {
+    return _platform.nfcMifareWriteBlock(blockIndex, data);
+  }
+
+  /// 向 Mifare Classic 发送原始厂商指令。
+  Future<Uint8List> transceiveMifare(Uint8List data) {
+    return _platform.nfcMifareTransceive(data);
+  }
+
+  /// 递增指定值块。
+  Future<void> incrementMifareBlock(int blockIndex, int value) {
+    return _platform.nfcMifareIncrement(blockIndex, value);
+  }
+
+  /// 递减指定值块。
+  Future<void> decrementMifareBlock(int blockIndex, int value) {
+    return _platform.nfcMifareDecrement(blockIndex, value);
+  }
+
+  /// 将值块恢复到临时块。
+  Future<void> restoreMifareBlock(int blockIndex) {
+    return _platform.nfcMifareRestore(blockIndex);
+  }
+
+  /// 将临时块转移至目标值块。
+  Future<void> transferMifareBlock(int blockIndex) {
+    return _platform.nfcMifareTransfer(blockIndex);
+  }
+
+  /// 查询块所属扇区。
+  Future<int> mifareBlockToSector(int blockIndex) {
+    return _platform.nfcMifareBlockToSector(blockIndex);
+  }
+
+  /// 查询扇区首块。
+  Future<int> mifareSectorToBlock(int sectorIndex) {
+    return _platform.nfcMifareSectorToBlock(sectorIndex);
+  }
+
+  /// 查询指定扇区的块数量。
+  Future<int> mifareBlockCountInSector(int sectorIndex) {
+    return _platform.nfcMifareBlockCountInSector(sectorIndex);
+  }
+
+  /// 查询标签总块数。
+  Future<int> mifareBlockCount() => _platform.nfcMifareBlockCount();
+
+  /// 查询标签扇区数。
+  Future<int> mifareSectorCount() => _platform.nfcMifareSectorCount();
+
+  /// 查询标签容量，单位字节。
+  Future<int> mifareSize() => _platform.nfcMifareSize();
+
+  /// 查询 Mifare Classic 兼容类型。
+  Future<Nf5503MifareClassicType> mifareType() {
+    return _platform.nfcMifareType();
+  }
+
+  /// 查询 transceive 最大长度。
+  Future<int> mifareMaxTransceiveLength() {
+    return _platform.nfcMifareMaxTransceiveLength();
+  }
+
+  /// 一次性连接、鉴权并读取块，完成后自动断开。
+  Future<Uint8List> readMifareBlockWithKey({
+    required int blockIndex,
+    required Uint8List key,
+    Nf5503MifareKeyType keyType = Nf5503MifareKeyType.keyA,
+  }) async {
+    await connectMifare();
+    try {
+      final sector = await mifareBlockToSector(blockIndex);
+      final authenticated = await authenticateMifareSector(
+        sectorIndex: sector,
+        key: key,
+        keyType: keyType,
+      );
+      if (!authenticated) {
+        throw StateError('Mifare Classic authentication failed.');
+      }
+      return await readMifareBlock(blockIndex);
+    } finally {
+      await _closeMifareQuietly();
+    }
+  }
+
+  /// 一次性连接、鉴权并写入块，完成后自动断开。
+  ///
+  /// [data] 为 1 到 16 字节；不足 16 字节时补零，与官方 Demo 的
+  /// `Arrays.copyOf(bytes, 16)` 行为一致。
+  Future<void> writeMifareBlockWithKey({
+    required int blockIndex,
+    required Uint8List data,
+    required Uint8List key,
+    Nf5503MifareKeyType keyType = Nf5503MifareKeyType.keyA,
+  }) async {
+    if (data.isEmpty || data.length > 16) {
+      throw ArgumentError.value(data.length, 'data.length', 'must be 1..16');
+    }
+    final blockData = Uint8List(16)..setRange(0, data.length, data);
+    await connectMifare();
+    try {
+      final sector = await mifareBlockToSector(blockIndex);
+      final authenticated = await authenticateMifareSector(
+        sectorIndex: sector,
+        key: key,
+        keyType: keyType,
+      );
+      if (!authenticated) {
+        throw StateError('Mifare Classic authentication failed.');
+      }
+      await writeMifareBlock(blockIndex, blockData);
+    } finally {
+      await _closeMifareQuietly();
+    }
+  }
+
+  /// 修改扇区尾块的 Key A 或 Key B，保留访问位和另一把密钥。
+  Future<void> changeMifareSectorKey({
+    required int sectorIndex,
+    required Uint8List currentKey,
+    required Uint8List newKey,
+    Nf5503MifareKeyType keyType = Nf5503MifareKeyType.keyA,
+  }) async {
+    if (currentKey.length != 6) {
+      throw ArgumentError.value(
+        currentKey.length,
+        'currentKey.length',
+        'must be 6',
+      );
+    }
+    if (newKey.length != 6) {
+      throw ArgumentError.value(newKey.length, 'newKey.length', 'must be 6');
+    }
+    await connectMifare();
+    try {
+      final authenticated = await authenticateMifareSector(
+        sectorIndex: sectorIndex,
+        key: currentKey,
+        keyType: keyType,
+      );
+      if (!authenticated) {
+        throw StateError('Mifare Classic authentication failed.');
+      }
+      final firstBlock = await mifareSectorToBlock(sectorIndex);
+      final blockCount = await mifareBlockCountInSector(sectorIndex);
+      final trailerBlock = firstBlock + blockCount - 1;
+      final trailer = Uint8List.fromList(
+        await readMifareBlock(trailerBlock),
+      );
+      if (trailer.length != 16) {
+        throw StateError('Mifare sector trailer must contain 16 bytes.');
+      }
+      final keyOffset = keyType == Nf5503MifareKeyType.keyA ? 0 : 10;
+      trailer.setRange(keyOffset, keyOffset + 6, newKey);
+      await writeMifareBlock(trailerBlock, trailer);
+    } finally {
+      await _closeMifareQuietly();
+    }
+  }
+
+  Future<void> _closeMifareQuietly() async {
+    try {
+      await closeMifare();
+    } catch (_) {
+      // Closing after a lost tag or a failed operation must not mask the
+      // original PlatformException.
+    }
   }
 }
