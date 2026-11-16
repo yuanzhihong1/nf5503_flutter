@@ -2,6 +2,7 @@ package com.m5stack.nf5503_flutter
 
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.nio.charset.Charset
 import org.mockito.Mockito
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -24,6 +25,24 @@ internal class Nf5503FlutterPluginTest {
     fun concentrationToNative_rejectsValuesOutsideSdkRange() {
         assertFailsWith<IllegalArgumentException> { concentrationToNative(0) }
         assertFailsWith<IllegalArgumentException> { concentrationToNative(40) }
+    }
+
+    @Test
+    fun decodeScanBytes_matchesEveryOfficialEncodingMode() {
+        val text = "NF5503-扫码"
+        assertEquals(text, decodeScanBytes(text.toByteArray(Charsets.UTF_8), 0))
+        assertEquals("ASCII", decodeScanBytes("ASCII".toByteArray(Charsets.US_ASCII), 1))
+        assertEquals(text, decodeScanBytes(text.toByteArray(Charset.forName("GBK")), 2))
+        assertEquals(text, decodeScanBytes(text.toByteArray(Charset.forName("GB2312")), 3))
+        assertEquals(text, decodeScanBytes(text.toByteArray(Charset.forName("GB18030")), 4))
+        assertEquals(text, decodeScanBytes(text.toByteArray(Charsets.UTF_16), 5))
+        assertEquals("ISO", decodeScanBytes("ISO".toByteArray(Charsets.ISO_8859_1), 6))
+    }
+
+    @Test
+    fun scanBroadcastDefaults_matchOfficialScanConfig() {
+        assertEquals("scan.rcv.message", DEFAULT_SCAN_ACTION)
+        assertEquals("barcodeData", DEFAULT_SCAN_KEY)
     }
 
     @Test

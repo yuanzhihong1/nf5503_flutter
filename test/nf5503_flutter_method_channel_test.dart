@@ -14,22 +14,23 @@ void main() {
     methodCalls.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-          methodCalls.add(methodCall);
-          return switch (methodCall.method) {
-            'getPlatformVersion' => '42',
-            'scanner.open' => true,
-            'scanner.getOutputMode' => 2,
-            'scanner.getDecodeMode' => 4,
-            'scanner.getScannerType' => 33,
-            'scanner.getSymbologyList' => <Map<String, Object?>>[
-              <String, Object?>{'id': 1, 'name': 'CODE128'},
-            ],
-            'printer.getFontSize' => 5,
-            'printer.getFontType' => 'default',
-            'printer.setThreshold' => 0,
-            _ => null,
-          };
-        });
+      methodCalls.add(methodCall);
+      return switch (methodCall.method) {
+        'getPlatformVersion' => '42',
+        'scanner.open' => true,
+        'scanner.getOutputMode' => 2,
+        'scanner.getDecodeMode' => 4,
+        'scanner.getScannerType' => 33,
+        'scanner.getSymbologyValues' => <int>[7],
+        'scanner.getSymbologyList' => <Map<String, Object?>>[
+            <String, Object?>{'id': 1, 'name': 'CODE128'},
+          ],
+        'printer.getFontSize' => 5,
+        'printer.getFontType' => 'default',
+        'printer.setThreshold' => 0,
+        _ => null,
+      };
+    });
   });
 
   tearDown(() {
@@ -79,6 +80,37 @@ void main() {
     expect(await platform.scannerGetSymbologyList(), <Map<String, Object?>>[
       <String, Object?>{'id': 1, 'name': 'CODE128'},
     ]);
+  });
+
+  test('scannerGetScannerTypeId preserves the raw SDK value', () async {
+    expect(await platform.scannerGetScannerTypeId(), 33);
+    expect(methodCalls.single.method, 'scanner.getScannerType');
+  });
+
+  test('scannerSetParameter uses the official parameter ID', () async {
+    await platform.scannerSetSymbologyValues(<int, int>{
+      Nf5503ScanParamId.LIGHTS_MODE: Nf5503ScanLightsMode.CONCURRENT,
+    });
+
+    expect(methodCalls.single.method, 'scanner.setSymbologyValues');
+    expect(methodCalls.single.arguments, <String, Object?>{
+      'paramIds': <int>[112],
+      'values': <int>[4],
+    });
+  });
+
+  test('scannerGetParameter returns the single native value', () async {
+    expect(
+      await platform.scannerGetSymbologyValues(<int>[
+        Nf5503ScanParamId.LIGHTS_MODE,
+      ]).then((values) => values.single),
+      7,
+    );
+
+    expect(methodCalls.single.method, 'scanner.getSymbologyValues');
+    expect(methodCalls.single.arguments, <String, Object?>{
+      'paramIds': <int>[112],
+    });
   });
 
   test('printerSetConcentration passes SDK density value', () async {

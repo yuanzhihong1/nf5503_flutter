@@ -1,16 +1,18 @@
 import 'dart:typed_data';
 
 import 'nf5503_flutter_platform_interface.dart';
+import 'src/nf5503_scan_constants.dart';
 import 'src/nf5503_types.dart';
 
+export 'src/nf5503_scan_constants.dart';
 export 'src/nf5503_types.dart';
 
 /// NF5503 扫码与打印 Flutter 插件入口。
 class Nf5503Flutter {
   /// 创建插件入口，可注入自定义扫码或打印门面便于测试。
   Nf5503Flutter({Nf5503Scanner? scanner, Nf5503Printer? printer})
-    : scanner = scanner ?? const Nf5503Scanner(),
-      printer = printer ?? const Nf5503Printer();
+      : scanner = scanner ?? const Nf5503Scanner(),
+        printer = printer ?? const Nf5503Printer();
 
   /// 扫码 SDK 操作门面。
   final Nf5503Scanner scanner;
@@ -61,8 +63,18 @@ class Nf5503Scanner {
   }
 
   /// 获取当前扫描头硬件类型。
+  ///
+  /// 厂商 SDK 新增但本插件尚未识别的类型会返回
+  /// [Nf5503ScannerType.unknown]；需要原始 ID 时使用 [getScannerTypeId]。
   Future<Nf5503ScannerType> getScannerType() {
     return _platform.scannerGetScannerType();
+  }
+
+  /// 获取当前扫描头硬件类型的原始 SDK ID。
+  ///
+  /// 该方法不会把新增扫描头折叠为 `unknown`，适合做设备能力判断。
+  Future<int> getScannerTypeId() {
+    return _platform.scannerGetScannerTypeId();
   }
 
   /// 查询当前扫描头是否与其它扫描服务冲突。
@@ -228,7 +240,7 @@ class Nf5503Scanner {
   /// 获取松开扫码键停止扫码的开关状态。
   Future<bool> getLiftToStop() => _platform.scannerGetLiftToStop();
 
-  /// 批量设置码制参数，Map 的 key 为参数 ID，value 为参数值。
+  /// 批量设置码制参数，Map 的 key 为 [Nf5503ScanParamId] 参数 ID。
   Future<void> setSymbologyValues(Map<int, int> values) {
     return _platform.scannerSetSymbologyValues(values);
   }
@@ -236,6 +248,30 @@ class Nf5503Scanner {
   /// 批量读取码制参数值，返回顺序与 [paramIds] 一致。
   Future<List<int>> getSymbologyValues(List<int> paramIds) {
     return _platform.scannerGetSymbologyValues(paramIds);
+  }
+
+  /// 设置单个码制参数，对应原生 `setSYMValueInts` 的单元素调用。
+  Future<void> setParameter(int paramId, int value) {
+    return setSymbologyValues(<int, int>{paramId: value});
+  }
+
+  /// 读取单个码制参数，对应原生 `getSYMValueInts` 的单元素调用。
+  Future<int> getParameter(int paramId) async {
+    final values = await getSymbologyValues(<int>[paramId]);
+    if (values.isEmpty) {
+      throw StateError('The SDK returned no value for parameter $paramId.');
+    }
+    return values.first;
+  }
+
+  /// 设置补光/瞄准灯模式，值使用 [Nf5503ScanLightsMode]。
+  Future<void> setLightsMode(int mode) {
+    return setParameter(Nf5503ScanParamId.LIGHTS_MODE, mode);
+  }
+
+  /// 读取补光/瞄准灯模式，返回值可对照 [Nf5503ScanLightsMode]。
+  Future<int> getLightsMode() {
+    return getParameter(Nf5503ScanParamId.LIGHTS_MODE);
   }
 
   /// 一次性启用或禁用全部码制。

@@ -74,6 +74,11 @@ class MethodChannelNf5503Flutter extends Nf5503FlutterPlatform {
   }
 
   @override
+  Future<int> scannerGetScannerTypeId() {
+    return _invokeInt('scanner.getScannerType');
+  }
+
+  @override
   Future<bool> scannerIsConflicted() {
     return _invokeBool('scanner.isConflicted');
   }
@@ -373,8 +378,8 @@ class MethodChannelNf5503Flutter extends Nf5503FlutterPlatform {
   @override
   Stream<Nf5503PrintEvent> printerEvents() {
     return printerEventChannel.receiveBroadcastStream().map(
-      (event) => Nf5503PrintEvent.fromMap(_eventMap(event)),
-    );
+          (event) => Nf5503PrintEvent.fromMap(_eventMap(event)),
+        );
   }
 
   @override

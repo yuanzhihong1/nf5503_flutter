@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:nf5503_flutter/nf5503_flutter.dart';
@@ -42,8 +42,8 @@ class _ScanRecord {
 }
 
 class _MyAppState extends State<MyApp> {
-  static const _defaultScanAction = 'com.m5stack.nf5503_flutter.SCAN';
-  static const _defaultScanKey = 'barcode';
+  static const _defaultScanAction = Nf5503ScanBroadcast.defaultAction;
+  static const _defaultScanKey = Nf5503ScanBroadcast.defaultKey;
   static const _thermalCalibrationDensities = <int>[
     1,
     4,
@@ -76,6 +76,11 @@ class _MyAppState extends State<MyApp> {
   bool? _printerOpen;
   int? _supportPrint;
   int? _lastPrinterState;
+  int? _scannerTypeId;
+  bool? _scannerConflicted;
+  bool? _decoderConnected;
+  int? _lightsMode;
+  int? _symbologyCount;
   bool _printServiceEnabled = false;
   bool _blackMarkThresholdEnabled = true;
   _PrintPaperType _printPaperType = _PrintPaperType.receipt;
@@ -194,7 +199,11 @@ class _MyAppState extends State<MyApp> {
               _scanRecords.removeLast();
             }
           });
-          _log('扫码内容: $scanText');
+          _log(
+            '扫码内容: $scanText, key=${result.broadcastKey}, '
+            'type=${result.barcodeType}, codeId=${result.codeId}, '
+            'bytes=${result.rawData?.length ?? 0}',
+          );
         }, onError: (Object error) => _log('扫码监听错误: $error'));
 
     setState(() {
@@ -217,18 +226,91 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _readScannerConfig() async {
     final isOpen = await _plugin.scanner.isOpen();
-    final mode = await _plugin.scanner.getOutputMode();
+    final outputMode = await _plugin.scanner.getOutputMode();
+    final decodeMode = await _plugin.scanner.getDecodeMode();
+    final endMark = await _plugin.scanner.getEndMark();
     final action = await _plugin.scanner.getBroadcastAction();
     final key = await _plugin.scanner.getBroadcastKey();
+    final prefix = await _plugin.scanner.getPrefix();
+    final suffix = await _plugin.scanner.getSuffix();
+    final filter = await _plugin.scanner.getFilter();
     final sound = await _plugin.scanner.getPlaySound();
     final vibrate = await _plugin.scanner.getVibrate();
+    final continueScan = await _plugin.scanner.getContinueScan();
+    final multiDecode = await _plugin.scanner.getMultiDecode();
+    final multiReadNumber = await _plugin.scanner.getMultiReadNumber();
+    final disableSameBarcode = await _plugin.scanner.getDisableSameBarcode();
+    final handleKey = await _plugin.scanner.getHandleKey();
+    final interval = await _plugin.scanner.getIntervalTime();
+    final decodeTimeout = await _plugin.scanner.getDecodeTimeout();
+    final liftToStop = await _plugin.scanner.getLiftToStop();
     setState(() {
       _scannerOpen = isOpen;
-      _scannerMode = mode.name;
+      _scannerMode = outputMode.name;
     });
     _log(
-      '扫码配置: open=$isOpen, mode=${mode.name}, action=$action, key=$key, sound=$sound, vibrate=$vibrate',
+      '扫码配置: open=$isOpen, output=${outputMode.name}, decode=${decodeMode.name}, '
+      'end=${endMark.name}, action=$action, key=$key, prefix="$prefix", '
+      'suffix="$suffix", filter="$filter", sound=$sound, vibrate=$vibrate, '
+      'continue=$continueScan, multi=$multiDecode/$multiReadNumber, '
+      'sameBarcodeDisabled=$disableSameBarcode, handleKey=$handleKey, '
+      'interval=$interval, timeout=$decodeTimeout, liftToStop=$liftToStop',
     );
+  }
+
+  Future<void> _inspectScannerSdk() async {
+    final typeId = await _plugin.scanner.getScannerTypeId();
+    final type = await _plugin.scanner.getScannerType();
+    final conflicted = await _plugin.scanner.isConflicted();
+    final decoderStatus = await _plugin.scanner.getDecoderStatus();
+    final decoderConnected = await _plugin.scanner.isDecoderConnected();
+    final symbologies = await _plugin.scanner.getSymbologyList();
+    final lightsMode = await _plugin.scanner.getLightsMode();
+    setState(() {
+      _scannerTypeId = typeId;
+      _scannerConflicted = conflicted;
+      _decoderConnected = decoderConnected;
+      _lightsMode = lightsMode;
+      _symbologyCount = symbologies.length;
+    });
+    _log(
+      '扫码 SDK 诊断: type=$typeId (${type.name}), conflicted=$conflicted, '
+      'decoderStatus=$decoderStatus, decoderConnected=$decoderConnected, '
+      'symbologies=${symbologies.length}, lights=$lightsMode',
+    );
+  }
+
+  Future<void> _cycleScannerLightsMode() async {
+    const modes = <int>[
+      Nf5503ScanLightsMode.ILLUM_AIM_OFF,
+      Nf5503ScanLightsMode.AIMER_ONLY,
+      Nf5503ScanLightsMode.ILLUM_ONLY,
+      Nf5503ScanLightsMode.ILLUM_AIM_ON,
+      Nf5503ScanLightsMode.CONCURRENT,
+    ];
+    final current = _lightsMode ?? await _plugin.scanner.getLightsMode();
+    final next = modes[(modes.indexOf(current) + 1) % modes.length];
+    await _plugin.scanner.setLightsMode(next);
+    setState(() => _lightsMode = next);
+    _log('扫码灯光模式: $next (${_lightsModeLabel(next)})');
+  }
+
+  Future<void> _restoreScannerSymbologyDefaults() async {
+    await _plugin.scanner.initSymbologySettings();
+    final lightsMode = await _plugin.scanner.getLightsMode();
+    setState(() => _lightsMode = lightsMode);
+    _log('已恢复 SDK 默认码制配置，灯光模式: $lightsMode');
+  }
+
+  String _lightsModeLabel(int mode) {
+    return switch (mode) {
+      Nf5503ScanLightsMode.ILLUM_AIM_OFF => '关闭',
+      Nf5503ScanLightsMode.AIMER_ONLY => '仅瞄准',
+      Nf5503ScanLightsMode.ILLUM_ONLY => '仅补光',
+      Nf5503ScanLightsMode.ILLUM_AIM_ON => '补光/瞄准交替',
+      Nf5503ScanLightsMode.CONCURRENT => '补光/瞄准同时',
+      _ => '未知($mode)',
+    };
   }
 
   Future<void> _closeScanner() async {
@@ -707,7 +789,50 @@ class _MyAppState extends State<MyApp> {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: _InfoTile(label: '输出模式', value: _scannerMode),
+              child: _InfoTile(
+                label: '输出/灯光',
+                value: '$_scannerMode / ${_lightsMode ?? '-'}',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _InfoTile(
+                label: '扫描头 ID',
+                value: _scannerTypeId?.toString() ?? '-',
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _InfoTile(
+                label: '解码器',
+                value: _decoderConnected == null
+                    ? '-'
+                    : (_decoderConnected! ? 'Connected' : 'Disconnected'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _InfoTile(
+                label: '冲突',
+                value: _scannerConflicted == null
+                    ? '-'
+                    : (_scannerConflicted! ? 'Yes' : 'No'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _InfoTile(
+                label: '码制项',
+                value: _symbologyCount?.toString() ?? '-',
+              ),
             ),
           ],
         ),
@@ -758,6 +883,30 @@ class _MyAppState extends State<MyApp> {
               onPressed: _busy
                   ? null
                   : () => _run('读取扫码配置', _readScannerConfig),
+            ),
+            _ActionButton(
+              label: 'SDK 诊断',
+              icon: CupertinoIcons.info_circle,
+              tone: _ActionTone.tinted,
+              onPressed: _busy
+                  ? null
+                  : () => _run('读取扫码 SDK 诊断', _inspectScannerSdk),
+            ),
+            _ActionButton(
+              label: '切换灯光',
+              icon: CupertinoIcons.lightbulb,
+              tone: _ActionTone.tinted,
+              onPressed: _busy
+                  ? null
+                  : () => _run('切换扫码灯光模式', _cycleScannerLightsMode),
+            ),
+            _ActionButton(
+              label: '码制默认值',
+              icon: CupertinoIcons.arrow_counterclockwise,
+              tone: _ActionTone.plain,
+              onPressed: _busy
+                  ? null
+                  : () => _run('恢复码制默认值', _restoreScannerSymbologyDefaults),
             ),
             _ActionButton(
               label: '关闭',

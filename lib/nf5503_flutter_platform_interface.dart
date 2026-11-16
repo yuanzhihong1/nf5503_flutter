@@ -79,6 +79,13 @@ abstract class Nf5503FlutterPlatform extends PlatformInterface {
     );
   }
 
+  /// 获取当前扫描头硬件类型的原始 SDK ID。
+  Future<int> scannerGetScannerTypeId() {
+    throw UnimplementedError(
+      'scannerGetScannerTypeId() has not been implemented.',
+    );
+  }
+
   /// 查询当前扫描头是否与其它扫描服务冲突。
   Future<bool> scannerIsConflicted() {
     throw UnimplementedError('scannerIsConflicted() has not been implemented.');

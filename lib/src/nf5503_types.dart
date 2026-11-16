@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 /// 扫码结果输出方式，对应原生 ScanConfig.SCAN_OUTPUTMODE_* 常量。
 enum Nf5503ScanOutputMode {
   /// 通过 Android 广播输出扫码结果。
@@ -13,18 +15,21 @@ enum Nf5503ScanOutputMode {
   singleInputBox(3),
 
   /// 将扫码结果写入剪贴板。
-  clipboard(4);
+  clipboard(4),
+
+  /// 当前 SDK 返回了未定义的输出模式。
+  unknown(-1);
 
   const Nf5503ScanOutputMode(this.value);
 
   /// 原生 SDK 使用的整数值。
   final int value;
 
-  /// 根据原生 SDK 返回值转换为 Flutter 枚举，未知值默认按广播模式处理。
+  /// 根据原生 SDK 返回值转换为 Flutter 枚举，未知值返回 [unknown]。
   static Nf5503ScanOutputMode fromValue(int value) {
     return values.firstWhere(
       (mode) => mode.value == value,
-      orElse: () => Nf5503ScanOutputMode.broadcast,
+      orElse: () => Nf5503ScanOutputMode.unknown,
     );
   }
 }
@@ -38,18 +43,21 @@ enum Nf5503ScanEndMark {
   enter(1),
 
   /// 追加 Tab 符。
-  tab(2);
+  tab(2),
+
+  /// 当前 SDK 返回了未定义的结束符。
+  unknown(-1);
 
   const Nf5503ScanEndMark(this.value);
 
   /// 原生 SDK 使用的整数值。
   final int value;
 
-  /// 根据原生 SDK 返回值转换为 Flutter 枚举，未知值默认按不追加处理。
+  /// 根据原生 SDK 返回值转换为 Flutter 枚举，未知值返回 [unknown]。
   static Nf5503ScanEndMark fromValue(int value) {
     return values.firstWhere(
       (mark) => mark.value == value,
-      orElse: () => Nf5503ScanEndMark.none,
+      orElse: () => Nf5503ScanEndMark.unknown,
     );
   }
 }
@@ -75,18 +83,21 @@ enum Nf5503ScanDecodeMode {
   utf16(5),
 
   /// ISO-8859-1 编码。
-  iso88591(6);
+  iso88591(6),
+
+  /// 当前 SDK 返回了未定义的编码模式。
+  unknown(-1);
 
   const Nf5503ScanDecodeMode(this.value);
 
   /// 原生 SDK 使用的整数值。
   final int value;
 
-  /// 根据原生 SDK 返回值转换为 Flutter 枚举，未知值默认按 UTF-8 处理。
+  /// 根据原生 SDK 返回值转换为 Flutter 枚举，未知值返回 [unknown]。
   static Nf5503ScanDecodeMode fromValue(int value) {
     return values.firstWhere(
       (mode) => mode.value == value,
-      orElse: () => Nf5503ScanDecodeMode.utf8,
+      orElse: () => Nf5503ScanDecodeMode.unknown,
     );
   }
 }
@@ -158,12 +169,50 @@ enum Nf5503ScannerType {
   }
 }
 
+/// 扫码广播中由官方 SDK 定义的默认字段名。
+abstract final class Nf5503ScanBroadcast {
+  /// 官方默认广播 Action，对应 `ScanConfig.ACTION_SCAN_RCV_MSG`。
+  static const String defaultAction = 'scan.rcv.message';
+
+  /// 官方默认扫码文本字段，对应 `ScanConfig.BARCODE_DATA`。
+  static const String defaultKey = 'barcodeData';
+
+  /// 原始条码字节字段，对应 `ScanConfig.BARCODE_BYTE_DATA`（SDK 原文拼写）。
+  static const String rawDataKey = 'barocode';
+
+  /// 部分固件使用的原始条码字节字段，对应 `ScanConfig.GEEK_BARCODE_BYTE_DATA`。
+  static const String fallbackRawDataKey = 'data';
+
+  /// 条码长度字段，对应 `ScanConfig.BARCODE_DATA_LEN`。
+  static const String lengthKey = 'length';
+
+  /// 条码类型字段，对应 `ScanConfig.BARCODE_TYPE`。
+  static const String barcodeTypeKey = 'barcodeType';
+
+  /// 条码 Code ID 字段，对应 `ScanConfig.BARCODE_ID`。
+  static const String codeIdKey = 'codeId';
+
+  /// AIM ID 字段，对应 `ScanConfig.BARCODE_AIMID`。
+  static const String aimIdKey = 'aimId';
+
+  /// AIM Modifier 字段，对应 `ScanConfig.BARCODE_AIM_MODIFIER`。
+  static const String aimModifierKey = 'aimModifier';
+}
+
 /// 一次扫码广播解析后的结果。
 class Nf5503ScanResult {
   /// 创建扫码结果对象。
   const Nf5503ScanResult({
     required this.data,
     this.action,
+    this.broadcastKey,
+    this.rawData,
+    this.codeId,
+    this.barcodeType,
+    this.aimId,
+    this.aimIdBytes,
+    this.length,
+    this.aimModifier,
     this.extras = const <String, Object?>{},
   });
 
@@ -177,10 +226,45 @@ class Nf5503ScanResult {
       });
     }
 
+    final broadcastKey = _stringFromObject(
+      map['key'] ?? map['broadcastKey'],
+    );
+    final rawExtrasCopy = Map<String, Object?>.unmodifiable(extras);
+    final rawData = _bytesFromObject(map['rawData']) ??
+        _bytesFromObject(
+          broadcastKey == null ? null : rawExtrasCopy[broadcastKey],
+        ) ??
+        _bytesFromObject(rawExtrasCopy[Nf5503ScanBroadcast.rawDataKey]) ??
+        _bytesFromObject(
+          rawExtrasCopy[Nf5503ScanBroadcast.fallbackRawDataKey],
+        );
+
+    final aimIdBytes = _bytesFromObject(
+      rawExtrasCopy[Nf5503ScanBroadcast.aimIdKey],
+    );
+
     return Nf5503ScanResult(
       data: map['data']?.toString() ?? '',
-      action: map['action']?.toString(),
-      extras: extras,
+      action: _stringFromObject(map['action']),
+      broadcastKey: broadcastKey,
+      rawData: rawData,
+      codeId: _stringFromObject(map['codeId']) ??
+          _stringFromObject(rawExtrasCopy[Nf5503ScanBroadcast.codeIdKey]),
+      barcodeType: _intFromObject(map['barcodeType']) ??
+          _intFromObject(
+            rawExtrasCopy[Nf5503ScanBroadcast.barcodeTypeKey],
+          ),
+      aimId: _stringFromObject(map['aimId']) ??
+          _stringFromObject(rawExtrasCopy[Nf5503ScanBroadcast.aimIdKey]) ??
+          _asciiString(aimIdBytes),
+      aimIdBytes: aimIdBytes,
+      length: _intFromObject(map['length']) ??
+          _intFromObject(rawExtrasCopy[Nf5503ScanBroadcast.lengthKey]),
+      aimModifier: _intFromObject(map['aimModifier']) ??
+          _intFromObject(
+            rawExtrasCopy[Nf5503ScanBroadcast.aimModifierKey],
+          ),
+      extras: rawExtrasCopy,
     );
   }
 
@@ -190,8 +274,38 @@ class Nf5503ScanResult {
   /// 收到结果的 Android 广播 Action。
   final String? action;
 
-  /// 原始广播携带的 extras，方便业务读取条码类型等附加信息。
+  /// 当前广播中承载扫码数据的字段名。
+  final String? broadcastKey;
+
+  /// 原始条码字节。部分固件只提供文本时该值为空。
+  final Uint8List? rawData;
+
+  /// 扫码器返回的 Code ID。
+  final String? codeId;
+
+  /// 扫码器返回的条码类型原始值。
+  final int? barcodeType;
+
+  /// AIM ID 文本。
+  final String? aimId;
+
+  /// AIM ID 原始字节。
+  final Uint8List? aimIdBytes;
+
+  /// 固件声明的条码长度。
+  final int? length;
+
+  /// AIM Modifier 原始值。
+  final int? aimModifier;
+
+  /// 原始广播携带的 extras，方便业务读取固件新增字段。
   final Map<String, Object?> extras;
+
+  /// 是否没有可展示的文本内容。
+  bool get isEmpty => data.isEmpty;
+
+  /// 是否包含任意形式的扫码数据。
+  bool get hasData => data.isNotEmpty || (rawData?.isNotEmpty ?? false);
 }
 
 /// 打印内容对齐方式，对应原生 PrintConfig.Align 常量。
@@ -477,6 +591,52 @@ class Nf5503PrintEvent {
 
   /// 当前状态是否表示打印成功。
   bool get isSuccess => state == Nf5503PrintErrorCode.noError.value;
+}
+
+String? _stringFromObject(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is String) {
+    return value;
+  }
+  if (value is ByteData) {
+    return _asciiString(value.buffer.asUint8List());
+  }
+  if (value is List<int>) {
+    return _asciiString(Uint8List.fromList(value));
+  }
+  return value.toString();
+}
+
+Uint8List? _bytesFromObject(Object? value) {
+  if (value is Uint8List) {
+    return value;
+  }
+  if (value is ByteData) {
+    return value.buffer.asUint8List(value.offsetInBytes, value.lengthInBytes);
+  }
+  if (value is List<int>) {
+    return Uint8List.fromList(value);
+  }
+  if (value is List) {
+    final bytes = <int>[];
+    for (final item in value) {
+      if (item is! num) {
+        return null;
+      }
+      bytes.add(item.toInt());
+    }
+    return Uint8List.fromList(bytes);
+  }
+  return null;
+}
+
+String? _asciiString(Uint8List? bytes) {
+  if (bytes == null || bytes.isEmpty) {
+    return null;
+  }
+  return String.fromCharCodes(bytes);
 }
 
 int? _intFromObject(Object? value) {
