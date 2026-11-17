@@ -1,10 +1,6 @@
 package com.m5stack.nf5503_flutter
 
-import android.bld.PrintManager
 import android.app.Activity
-import android.bld.ScanManager
-import android.bld.scan.configuration.ScanConfig
-import android.bld.print.aidl.PrinterBinderListener
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -15,7 +11,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
-import com.example.lc_print_sdk.PrintUtil
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -48,9 +43,10 @@ class Nf5503FlutterPlugin :
     private var apiExecutor: ExecutorService = newApiExecutor()
     private lateinit var scanHandlerThread: HandlerThread
     private lateinit var scanHandler: Handler
-    private var scanner: ScanManager? = null
-    private var printer: PrintManager? = null
-    private var printUtil: PrintUtil? = null
+    private var scanner: Nf5503ScannerApi? = null
+    private var printer: Nf5503PrinterApi? = null
+    private var scannerLoadAttempted = false
+    private var printerLoadAttempted = false
     @Volatile
     private var scannerEvents: EventChannel.EventSink? = null
     @Volatile
@@ -63,18 +59,6 @@ class Nf5503FlutterPlugin :
     private var scanKey: String? = null
     @Volatile
     private var scanDecodeMode: Int = 0
-
-    private val printListener =
-        object : PrinterBinderListener {
-            override fun onPrintCallback(state: Int) {
-                postPrinterEvent(
-                    mapOf(
-                        "type" to "state",
-                        "state" to state,
-                    ),
-                )
-            }
-        }
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         appContext = flutterPluginBinding.applicationContext
@@ -150,14 +134,16 @@ class Nf5503FlutterPlugin :
                     ensureScanner().initSymbologySettings()
                     result.success(null)
                 }
-                "scanner.getScannerType" -> result.success(ensureScanner().getScannerType())
+                "scanner.getScannerType" -> result.success(
+                    scannerOrNull()?.getScannerType() ?: SCANNER_TYPE_NONE,
+                )
                 "scanner.isConflicted" -> result.success(ensureScanner().isScannerConflicted())
                 "scanner.connectDecoder" -> {
-                    connectDecoder(ensureScanner())
+                    ensureScanner().connectDecoder()
                     result.success(null)
                 }
                 "scanner.disconnectDecoder" -> {
-                    disconnectDecoder(ensureScanner())
+                    ensureScanner().disconnectDecoder()
                     result.success(null)
                 }
                 "scanner.getDecoderStatus" -> result.success(ensureScanner().getDecoderStatus())
@@ -166,62 +152,62 @@ class Nf5503FlutterPlugin :
                     ensureScanner().setPrefix(call.stringArg("prefix"))
                     result.success(null)
                 }
-                "scanner.getPrefix" -> result.success(ensureScanner().prefix.orEmpty())
+                "scanner.getPrefix" -> result.success(ensureScanner().getPrefix().orEmpty())
                 "scanner.setSuffix" -> {
                     ensureScanner().setSuffix(call.stringArg("suffix"))
                     result.success(null)
                 }
-                "scanner.getSuffix" -> result.success(ensureScanner().suffix.orEmpty())
+                "scanner.getSuffix" -> result.success(ensureScanner().getSuffix().orEmpty())
                 "scanner.setFilter" -> {
                     ensureScanner().setFilter(call.stringArg("filter"))
                     result.success(null)
                 }
-                "scanner.getFilter" -> result.success(ensureScanner().filter.orEmpty())
+                "scanner.getFilter" -> result.success(ensureScanner().getFilter().orEmpty())
                 "scanner.setPlaySound" -> {
                     ensureScanner().setPlaySound(call.boolArg("enabled"))
                     result.success(null)
                 }
-                "scanner.getPlaySound" -> result.success(ensureScanner().playSound)
+                "scanner.getPlaySound" -> result.success(ensureScanner().getPlaySound())
                 "scanner.setVibrate" -> {
                     ensureScanner().setVibrate(call.boolArg("enabled"))
                     result.success(null)
                 }
-                "scanner.getVibrate" -> result.success(ensureScanner().vibrate)
+                "scanner.getVibrate" -> result.success(ensureScanner().getVibrate())
                 "scanner.setContinueScan" -> {
                     ensureScanner().setContinueScan(call.boolArg("enabled"))
                     result.success(null)
                 }
-                "scanner.getContinueScan" -> result.success(ensureScanner().continueScan)
+                "scanner.getContinueScan" -> result.success(ensureScanner().getContinueScan())
                 "scanner.setMultiDecode" -> {
                     ensureScanner().setMultiDecode(call.boolArg("enabled"))
                     result.success(null)
                 }
-                "scanner.getMultiDecode" -> result.success(ensureScanner().multiDecode)
+                "scanner.getMultiDecode" -> result.success(ensureScanner().getMultiDecode())
                 "scanner.setMultiReadNumber" -> {
                     ensureScanner().setMultiReadNumber(call.intArg("number"))
                     result.success(null)
                 }
-                "scanner.getMultiReadNumber" -> result.success(ensureScanner().multiReadNumber)
+                "scanner.getMultiReadNumber" -> result.success(ensureScanner().getMultiReadNumber())
                 "scanner.setDisableSameBarcode" -> {
                     ensureScanner().setDisableSameBarcode(call.boolArg("disabled"))
                     result.success(null)
                 }
-                "scanner.getDisableSameBarcode" -> result.success(ensureScanner().disableSameBarcode)
+                "scanner.getDisableSameBarcode" -> result.success(ensureScanner().getDisableSameBarcode())
                 "scanner.setBroadcastAction" -> {
                     ensureScanner().setBroadcastAction(call.stringArg("action"))
                     result.success(null)
                 }
-                "scanner.getBroadcastAction" -> result.success(ensureScanner().broadcastAction.orEmpty())
+                "scanner.getBroadcastAction" -> result.success(ensureScanner().getBroadcastAction().orEmpty())
                 "scanner.setBroadcastKey" -> {
                     ensureScanner().setBroadcastKey(call.stringArg("key"))
                     result.success(null)
                 }
-                "scanner.getBroadcastKey" -> result.success(ensureScanner().broadcastKey.orEmpty())
+                "scanner.getBroadcastKey" -> result.success(ensureScanner().getBroadcastKey().orEmpty())
                 "scanner.setOutputMode" -> {
-                    ensureScanner().setOPMode(call.intArg("mode"))
+                    ensureScanner().setOutputMode(call.intArg("mode"))
                     result.success(null)
                 }
-                "scanner.getOutputMode" -> result.success(ensureScanner().opMode)
+                "scanner.getOutputMode" -> result.success(ensureScanner().getOutputMode())
                 "scanner.setDecodeMode" -> {
                     val mode = call.intArg("mode")
                     ensureScanner().setDecodeMode(mode)
@@ -229,34 +215,34 @@ class Nf5503FlutterPlugin :
                     result.success(null)
                 }
                 "scanner.getDecodeMode" -> result.success(
-                    ensureScanner().decodeMode.also { scanDecodeMode = it },
+                    ensureScanner().getDecodeMode().also { scanDecodeMode = it },
                 )
                 "scanner.setEndMark" -> {
                     ensureScanner().setEndMark(call.intArg("mark"))
                     result.success(null)
                 }
-                "scanner.getEndMark" -> result.success(ensureScanner().endMark)
+                "scanner.getEndMark" -> result.success(ensureScanner().getEndMark())
                 "scanner.setHandleKey" -> {
                     ensureScanner().setHandleKey(call.boolArg("enabled"))
                     result.success(null)
                 }
-                "scanner.getHandleKey" -> result.success(ensureScanner().handleKey)
+                "scanner.getHandleKey" -> result.success(ensureScanner().getHandleKey())
                 "scanner.setIntervalTime" -> {
                     result.success(ensureScanner().setIntervalTime(call.intArg("milliseconds")))
                 }
-                "scanner.getIntervalTime" -> result.success(ensureScanner().intervalTime)
+                "scanner.getIntervalTime" -> result.success(ensureScanner().getIntervalTime())
                 "scanner.setDecodeTimeout" -> {
                     ensureScanner().setDecodeTimeout(call.intArg("milliseconds"))
                     result.success(null)
                 }
-                "scanner.getDecodeTimeout" -> result.success(ensureScanner().decodeTimeout)
+                "scanner.getDecodeTimeout" -> result.success(ensureScanner().getDecodeTimeout())
                 "scanner.setLiftToStop" -> {
                     ensureScanner().setLiftToStop(call.boolArg("enabled"))
                     result.success(null)
                 }
-                "scanner.getLiftToStop" -> result.success(ensureScanner().liftToStop)
+                "scanner.getLiftToStop" -> result.success(ensureScanner().getLiftToStop())
                 "scanner.setSymbologyValues" -> {
-                    ensureScanner().setSYMValueInts(
+                    ensureScanner().setSymbologyValues(
                         call.intListArg("paramIds").toIntArray(),
                         call.intListArg("values").toIntArray(),
                     )
@@ -265,86 +251,86 @@ class Nf5503FlutterPlugin :
                 "scanner.getSymbologyValues" -> {
                     result.success(
                         ensureScanner()
-                            .getSYMValueInts(call.intListArg("paramIds").toIntArray())
+                            .getSymbologyValues(call.intListArg("paramIds").toIntArray())
                             ?.toList()
                             ?: emptyList<Int>(),
                     )
                 }
                 "scanner.enableAllSymbologies" -> {
-                    ensureScanner().enableAllSYM(call.boolArg("enabled"))
+                    ensureScanner().enableAllSymbologies(call.boolArg("enabled"))
                     result.success(null)
                 }
                 "scanner.enableSymbology" -> {
-                    ensureScanner().enableSYM(
+                    ensureScanner().enableSymbology(
                         call.boolArg("enabled"),
                         call.intArg("symbologyId"),
                     )
                     result.success(null)
                 }
                 "scanner.enableAll1dSymbologies" -> {
-                    ensureScanner().enableSYM1D(call.boolArg("enabled"))
+                    ensureScanner().enableAll1dSymbologies(call.boolArg("enabled"))
                     result.success(null)
                 }
                 "scanner.enableAll2dSymbologies" -> {
-                    ensureScanner().enableSYM2D(call.boolArg("enabled"))
+                    ensureScanner().enableAll2dSymbologies(call.boolArg("enabled"))
                     result.success(null)
                 }
                 "scanner.isSymbologyEnabled" -> {
-                    result.success(ensureScanner().isSYMEnabled(call.intArg("symbologyId")))
+                    result.success(ensureScanner().isSymbologyEnabled(call.intArg("symbologyId")))
                 }
                 "scanner.isSymbologySupported" -> {
-                    result.success(ensureScanner().isSYMSupported(call.intArg("symbologyId")))
+                    result.success(ensureScanner().isSymbologySupported(call.intArg("symbologyId")))
                 }
                 "scanner.reset" -> {
-                    ensureScanner().resetScan()
+                    ensureScanner().reset()
                     result.success(null)
                 }
 
-                "printer.getVersion" -> result.success(ensurePrinter().printerVer.orEmpty())
-                "printer.open" -> result.success(ensurePrinter().open())
-                "printer.close" -> result.success(ensurePrinter().close())
+                "printer.getVersion" -> result.success(printerOrNull()?.getVersion().orEmpty())
+                "printer.open" -> result.success(printerOrNull()?.open() ?: false)
+                "printer.close" -> result.success(printerOrNull()?.close() ?: false)
                 "printer.setConcentration" -> {
                     ensurePrinter().setDensity(concentrationToNative(call.intArg("density")))
                     result.success(null)
                 }
-                "printer.getConcentration" -> result.success(ensurePrinter().density * 4)
+                "printer.getConcentration" -> result.success(ensurePrinter().getDensity() * 4)
                 "printer.reset" -> result.success(ensurePrinter().reset())
                 "printer.setFontType" -> {
                     ensurePrinter().setFontType(call.stringArg("fontType"))
                     result.success(null)
                 }
-                "printer.getFontType" -> result.success(ensurePrinter().fontType.orEmpty())
+                "printer.getFontType" -> result.success(ensurePrinter().getFontType().orEmpty())
                 "printer.setFontSize" -> {
                     ensurePrinter().setFontSize(call.intArg("fontSize"))
                     result.success(null)
                 }
-                "printer.getFontSize" -> result.success(ensurePrinter().fontSize)
+                "printer.getFontSize" -> result.success(ensurePrinter().getFontSize())
                 "printer.setBold" -> {
-                    ensurePrinter().setFontBold(call.boolArg("enabled"))
+                    ensurePrinter().setBold(call.boolArg("enabled"))
                     result.success(null)
                 }
-                "printer.isBold" -> result.success(ensurePrinter().isFontBold)
+                "printer.isBold" -> result.success(ensurePrinter().isBold())
                 "printer.setBlackMark" -> {
-                    ensurePrinter().setBlackLabel(call.boolArg("enabled"))
+                    ensurePrinter().setBlackMark(call.boolArg("enabled"))
                     result.success(null)
                 }
-                "printer.isBlackMark" -> result.success(ensurePrinter().isBlackLabel)
+                "printer.isBlackMark" -> result.success(ensurePrinter().isBlackMark())
                 "printer.setThreshold" -> result.success(ensurePrinter().setThreshold(call.intArg("threshold")))
                 "printer.setUnderline" -> {
-                    ensurePrinter().setUnderLine(call.boolArg("enabled"))
+                    ensurePrinter().setUnderline(call.boolArg("enabled"))
                     result.success(null)
                 }
-                "printer.isUnderline" -> result.success(ensurePrinter().isUnderLine)
+                "printer.isUnderline" -> result.success(ensurePrinter().isUnderline())
                 "printer.setFeedPaperSpace" -> {
                     ensurePrinter().setFeedPaperSpace(call.intArg("space"))
                     result.success(null)
                 }
-                "printer.getFeedPaperSpace" -> result.success(ensurePrinter().feedPaperSpace)
+                "printer.getFeedPaperSpace" -> result.success(ensurePrinter().getFeedPaperSpace())
                 "printer.setUnwindPaperLength" -> {
-                    ensurePrinter().setUnwindPaperLen(call.intArg("length"))
+                    ensurePrinter().setUnwindPaperLength(call.intArg("length"))
                     result.success(null)
                 }
-                "printer.getUnwindPaperLength" -> result.success(ensurePrinter().unwindPaperLen)
+                "printer.getUnwindPaperLength" -> result.success(ensurePrinter().getUnwindPaperLength())
                 "printer.addText" -> {
                     ensurePrinter().addText(
                         call.intArg("align"),
@@ -366,7 +352,7 @@ class Nf5503FlutterPlugin :
                     result.success(null)
                 }
                 "printer.addQrCode" -> {
-                    ensurePrinter().addQRCode(
+                    ensurePrinter().addQrCode(
                         call.intArg("align"),
                         call.intArg("size"),
                         call.stringArg("content"),
@@ -397,25 +383,22 @@ class Nf5503FlutterPlugin :
                     ensurePrinter().setReverse(call.boolArg("enabled"))
                     result.success(null)
                 }
-                "printer.isReverse" -> result.success(ensurePrinter().isReverse)
+                "printer.isReverse" -> result.success(ensurePrinter().isReverse())
                 "printer.goToNextMark" -> {
-                    val distance = call.optionalIntArg("distance")
-                    if (distance == null) {
-                        ensurePrintUtil().printGoToNextMark()
-                    } else {
-                        ensurePrintUtil().printGoToNextMark(distance)
-                    }
+                    ensurePrinter().goToNextMark(call.optionalIntArg("distance"))
                     result.success(null)
                 }
                 "printer.setLineSpacing" -> {
                     ensurePrinter().setLineSpacing(call.doubleArg("spacing").toFloat())
                     result.success(null)
                 }
-                "printer.getLineSpacing" -> result.success(ensurePrinter().lineSpacing.toDouble())
-                "printer.getSupportPrint" -> result.success(PrintUtil.getSupportPrint())
+                "printer.getLineSpacing" -> result.success(ensurePrinter().getLineSpacing().toDouble())
+                "printer.getSupportPrint" -> result.success(printerOrNull()?.getSupportPrint() ?: 0)
                 "printer.getState" -> result.success(ensurePrinter().getPrinterState(call.intArg("stateType")))
                 else -> result.notImplemented()
             }
+        } catch (error: Nf5503UnavailableException) {
+            result.error("NF5503_UNAVAILABLE", error.message, null)
         } catch (error: Throwable) {
             result.error("NF5503_ERROR", error.message, null)
         }
@@ -483,24 +466,36 @@ class Nf5503FlutterPlugin :
         }
     }
 
-    private fun ensureScanner(): ScanManager {
-        return scanner ?: ScanManager.getDefaultInstance(appContext).also { scanner = it }
+    private fun scannerOrNull(): Nf5503ScannerApi? {
+        scanner?.let { return it }
+        if (scannerLoadAttempted) {
+            return null
+        }
+        scannerLoadAttempted = true
+        scanner = Nf5503VendorAdapterLoader.createScanner(appContext)
+        return scanner
     }
 
-    private fun ensurePrinter(): PrintManager {
-        return printer ?: PrintManager.getDefaultInstance(appContext).also { printer = it }
+    private fun printerOrNull(): Nf5503PrinterApi? {
+        printer?.let { return it }
+        if (printerLoadAttempted) {
+            return null
+        }
+        printerLoadAttempted = true
+        printer = Nf5503VendorAdapterLoader.createPrinter(appContext)
+        return printer
     }
 
-    private fun ensurePrintUtil(): PrintUtil {
-        return printUtil ?: PrintUtil.getInstance(appContext).also { printUtil = it }
+    private fun ensureScanner(): Nf5503ScannerApi {
+        return scannerOrNull() ?: throw Nf5503UnavailableException("扫码")
+    }
+
+    private fun ensurePrinter(): Nf5503PrinterApi {
+        return printerOrNull() ?: throw Nf5503UnavailableException("打印")
     }
 
     private fun getSymbologyListByReflection(): List<Map<String, Any?>> {
-        val scanner = ensureScanner()
-        val values = scanner.javaClass
-            .getMethod("getSymbologyList")
-            .invoke(scanner) as? Iterable<*> ?: return emptyList()
-        return values.map { valueToMap(it) }
+        return ensureScanner().getSymbologyList().map { valueToMap(it) }
     }
 
     private fun valueToMap(
@@ -648,22 +643,6 @@ class Nf5503FlutterPlugin :
         }
     }
 
-    private fun connectDecoder(scanner: ScanManager) {
-        try {
-            scanner.decoderConnect()
-        } catch (_: NoSuchMethodError) {
-            scanner.DecoderConnect()
-        }
-    }
-
-    private fun disconnectDecoder(scanner: ScanManager) {
-        try {
-            scanner.decoderDisconnect()
-        } catch (_: NoSuchMethodError) {
-            scanner.DecoderDisconnect()
-        }
-    }
-
     private val scannerStreamHandler =
         object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
@@ -671,21 +650,23 @@ class Nf5503FlutterPlugin :
                     runApiBlocking {
                         scannerEvents = events
                         val args = arguments as? Map<*, *>
-                        val scanner = ensureScanner()
+                        val scanner =
+                            scannerOrNull()
+                                ?: throw Nf5503UnavailableException("扫码")
                         scanAction =
                             args?.get("action")?.toString()?.takeIf { it.isNotBlank() }
-                                ?: runCatching { scanner.broadcastAction }
+                                ?: runCatching { scanner.getBroadcastAction() }
                                     .getOrNull()
                                     ?.takeIf { it.isNotBlank() }
                                 ?: DEFAULT_SCAN_ACTION
                         scanKey =
                             args?.get("key")?.toString()?.takeIf { it.isNotBlank() }
-                                ?: runCatching { scanner.broadcastKey }
+                                ?: runCatching { scanner.getBroadcastKey() }
                                     .getOrNull()
                                     ?.takeIf { it.isNotBlank() }
                                 ?: DEFAULT_SCAN_KEY
                         scanDecodeMode =
-                            runCatching { scanner.decodeMode }
+                            runCatching { scanner.getDecodeMode() }
                                 .getOrDefault(scanDecodeMode)
 
                         registerScanReceiver(scanAction ?: DEFAULT_SCAN_ACTION, events)
@@ -693,7 +674,11 @@ class Nf5503FlutterPlugin :
                 } catch (error: Throwable) {
                     postScannerError(
                         events,
-                        "NF5503_SCAN_LISTENER",
+                        if (error is Nf5503UnavailableException) {
+                            "NF5503_UNAVAILABLE"
+                        } else {
+                            "NF5503_SCAN_LISTENER"
+                        },
                         error.message ?: "Unable to initialize scanner listener.",
                     )
                 }
@@ -713,19 +698,32 @@ class Nf5503FlutterPlugin :
                 try {
                     runApiBlocking {
                         printerEvents = events
-                        val printer = ensurePrinter()
-                        printer.addPrintListener(printListener)
+                        val printer =
+                            printerOrNull()
+                                ?: throw Nf5503UnavailableException("打印")
+                        printer.addPrintListener { state ->
+                            postPrinterEvent(
+                                mapOf(
+                                    "type" to "state",
+                                    "state" to state,
+                                ),
+                            )
+                        }
                         postPrinterEvent(
                             mapOf(
                                 "type" to "version",
-                                "version" to printer.printerVer.orEmpty(),
+                                "version" to printer.getVersion().orEmpty(),
                             ),
                         )
                     }
                 } catch (error: Throwable) {
                     postPrinterError(
                         events,
-                        "NF5503_PRINT_LISTENER",
+                        if (error is Nf5503UnavailableException) {
+                            "NF5503_UNAVAILABLE"
+                        } else {
+                            "NF5503_PRINT_LISTENER"
+                        },
                         error.message ?: "Unable to initialize printer listener.",
                     )
                 }
@@ -786,7 +784,7 @@ class Nf5503FlutterPlugin :
     }
 
     private fun removePrintListener() {
-        runCatching { printer?.removePrintListener(printListener) }
+        runCatching { printer?.removePrintListener() }
     }
 
     private fun postPrinterEvent(event: Map<String, Any?>) {
@@ -826,7 +824,7 @@ class Nf5503FlutterPlugin :
         val configuredKey = scanKey ?: DEFAULT_SCAN_KEY
         val rawData = findScanBytes(extras, configuredKey)
         val data = findScanText(extras, configuredKey, scanDecodeMode).orEmpty()
-        val aimIdValue = extras[ScanConfig.BARCODE_AIMID]
+        val aimIdValue = extras[SCAN_KEY_AIM_ID]
 
         val result = linkedMapOf<String, Any?>(
             "action" to intent.action,
@@ -837,10 +835,10 @@ class Nf5503FlutterPlugin :
         if (rawData != null) {
             result["rawData"] = rawData
         }
-        stringValue(extras[ScanConfig.BARCODE_ID], scanDecodeMode)?.let {
+        stringValue(extras[SCAN_KEY_CODE_ID], scanDecodeMode)?.let {
             result["codeId"] = it
         }
-        intValue(extras[ScanConfig.BARCODE_TYPE])?.let {
+        intValue(extras[SCAN_KEY_BARCODE_TYPE])?.let {
             result["barcodeType"] = it
         }
         stringValue(aimIdValue, scanDecodeMode)?.let {
@@ -849,10 +847,10 @@ class Nf5503FlutterPlugin :
         if (aimIdValue is ByteArray) {
             result["aimIdBytes"] = aimIdValue
         }
-        intValue(extras[ScanConfig.BARCODE_DATA_LEN])?.let {
+        intValue(extras[SCAN_KEY_LENGTH])?.let {
             result["length"] = it
         }
-        intValue(extras[ScanConfig.BARCODE_AIM_MODIFIER])?.let {
+        intValue(extras[SCAN_KEY_AIM_MODIFIER])?.let {
             result["aimModifier"] = it
         }
         return result
@@ -887,9 +885,9 @@ class Nf5503FlutterPlugin :
         val keys =
             listOf(
                 configuredKey,
-                ScanConfig.BARCODE_DATA,
-                ScanConfig.BARCODE_BYTE_DATA,
-                ScanConfig.GEEK_BARCODE_BYTE_DATA,
+                SCAN_KEY_BARCODE_DATA,
+                SCAN_KEY_BARCODE_BYTE_DATA,
+                SCAN_KEY_GEEK_BARCODE_BYTE_DATA,
             )
         return keys.distinct().mapNotNull { key ->
             extras[key]?.let { key to it }
@@ -945,6 +943,15 @@ private const val MAX_REFLECTION_DEPTH = 8
 
 internal const val DEFAULT_SCAN_ACTION = "scan.rcv.message"
 internal const val DEFAULT_SCAN_KEY = "barcodeData"
+internal const val SCANNER_TYPE_NONE = 0
+private const val SCAN_KEY_BARCODE_DATA = "barcodeData"
+private const val SCAN_KEY_BARCODE_BYTE_DATA = "barocode"
+private const val SCAN_KEY_GEEK_BARCODE_BYTE_DATA = "data"
+private const val SCAN_KEY_LENGTH = "length"
+private const val SCAN_KEY_BARCODE_TYPE = "barcodeType"
+private const val SCAN_KEY_CODE_ID = "codeId"
+private const val SCAN_KEY_AIM_ID = "aimId"
+private const val SCAN_KEY_AIM_MODIFIER = "aimModifier"
 internal const val MIN_PRINT_CONCENTRATION = 1
 internal const val MAX_PRINT_CONCENTRATION = 39
 

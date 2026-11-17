@@ -6,6 +6,7 @@ import java.nio.charset.Charset
 import org.mockito.Mockito
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 
 internal class Nf5503FlutterPluginTest {
@@ -43,6 +44,20 @@ internal class Nf5503FlutterPluginTest {
     fun scanBroadcastDefaults_matchOfficialScanConfig() {
         assertEquals("scan.rcv.message", DEFAULT_SCAN_ACTION)
         assertEquals("barcodeData", DEFAULT_SCAN_KEY)
+    }
+
+    @Test
+    fun vendorClassProbe_reportsMissingClassWithoutThrowing() {
+        assertFalse(
+            Nf5503VendorAdapterLoader.isClassAvailable(
+                "android.bld.Nf5503MissingVendorClass",
+            ),
+        )
+    }
+
+    @Test
+    fun noHardwareScannerType_matchesFlutterNoneValue() {
+        assertEquals(0, SCANNER_TYPE_NONE)
     }
 
     @Test

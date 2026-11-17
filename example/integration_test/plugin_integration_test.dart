@@ -21,6 +21,21 @@ void main() {
     // just assert that some non-empty string is returned.
     expect(version?.isNotEmpty, true);
   });
+  testWidgets('scanner and printer probes degrade safely', (
+    WidgetTester tester,
+  ) async {
+    final Nf5503Flutter plugin = Nf5503Flutter();
+
+    final int scannerTypeId = await plugin.scanner.getScannerTypeId();
+    final Nf5503ScannerType scannerType = await plugin.scanner.getScannerType();
+
+    expect(scannerTypeId, greaterThanOrEqualTo(0));
+    expect(scannerType, Nf5503ScannerType.fromValue(scannerTypeId));
+
+    expect(await plugin.printer.getVersion(), isA<String>());
+    expect(await plugin.printer.getSupportPrint(), isA<int>());
+  });
+
   testWidgets('NFC status bridge responds', (WidgetTester tester) async {
     final Nf5503Flutter plugin = Nf5503Flutter();
     final Nf5503NfcStatus status = await plugin.nfc.getStatus();

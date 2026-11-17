@@ -2,7 +2,7 @@
 
 `nf5503_flutter` 是面向 M5Stack NF5503 Android 设备的 Flutter 插件，封装条码扫码、NFC 读写、热敏小票打印和标签黑标打印能力。
 
-插件当前仅实现 Android 平台。扫码和打印 API 依赖 NF5503 固件/系统框架服务；NFC 使用 Android 标准 NFC Reader Mode。扫码与打印请在 NF5503 真机上验证，普通模拟器通常无法提供对应能力。
+插件当前仅实现 Android 平台。扫码和打印 API 依赖 NF5503 固件/系统框架服务；NFC 使用 Android 标准 NFC Reader Mode。插件可在普通 Android 手机上正常加载，未检测到 NF5503 服务时会安全降级，便于进行界面、网络和 NFC 联调。
 
 ## 功能特性
 
@@ -20,7 +20,7 @@
 
 ```yaml
 dependencies:
-  nf5503_flutter: ^0.1.0
+  nf5503_flutter: ^0.1.1
 ```
 
 本仓库内运行示例时，示例应用通过 path 依赖引用插件源码：
@@ -247,6 +247,9 @@ flutter run
 ## Android SDK 说明
 
 - `ScanManager_V202105081630.jar` 与 `PrinterAPI_V202108242200.jar` 作为 `compileOnly` 引入，因为 NF5503 设备系统会提供真实实现。
+- 插件 MethodChannel 始终可注册；厂商 SDK 适配器仅在对应系统类存在时通过反射加载，因此普通 Android 手机不会触发 `NoClassDefFoundError`。
+- 普通 Android 降级规则：`scanner.getScannerType/getScannerTypeId` 返回 `Nf5503ScannerType.none/0`；`printer.open()` 返回 `false`；其它明确依赖厂商服务的调用返回 `PlatformException(code: NF5503_UNAVAILABLE)`。
+- 普通手机上的 NFC 状态与读写能力取决于系统 NFC 硬件和权限，不依赖 NF5503 扫码/打印服务。
 - `lcprintsdk1.1-classes.jar` 随插件打包，用于 `PrintUtil` 的标签黑标走纸和打印支持探测。
 - 高级码制参数以整数透传，并由生成器从官方 JAR 同步全部 `DecoderConfigValues` 常量，避免业务代码手写魔法数。
 - 完整逐方法审计见 [`doc/scanner_sdk_api_alignment.md`](doc/scanner_sdk_api_alignment.md)。

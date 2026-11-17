@@ -1,3 +1,11 @@
+## 0.1.1
+
+- 修复普通 Android 因缺少 `android.bld.print.aidl.PrinterBinderListener` 导致插件注册失败并出现 `MissingPluginException` 的问题。
+- 扫码与打印厂商 SDK 改为按需延迟加载；普通手机不会加载 `ScanManager`、`PrintManager` 等 NF5503 系统类型。
+- 无 NF5503 硬件时，`getScannerType/getScannerTypeId` 返回 `none/0`，打印机 `open()` 返回 `false`，其余不可用能力返回 `NF5503_UNAVAILABLE`。
+- NFC 继续使用 Android 标准 Reader Mode，可在支持 NFC 的普通手机上独立工作。
+- 新增普通 Android 真机集成测试，覆盖扫码、打印探测和 NFC 通道。
+
 ## 0.1.0
 
 - 新增 `Nf5503Nfc` Flutter 门面，使用 Android Reader Mode 实现前台 NFC 标签发现和 NFC 开关状态事件。
